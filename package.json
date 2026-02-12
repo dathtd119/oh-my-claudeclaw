@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "bun run src/index.ts"
+    "dev": "bun run src/index.ts",
+    "telegram": "bun run src/telegram.ts"
   },
   "devDependencies": {
     "@types/bun": "^1.3.9"

@@ -11,6 +11,7 @@ Display this help information to the user:
 - `/heartbeat:stop` — Stop the running daemon
 - `/heartbeat:status` — Show daemon status, countdowns, and config
 - `/heartbeat:logs` — Show recent execution logs (accepts count or job name filter)
+- `/heartbeat:telegram` — Show Telegram bot status and sessions (use `clear` to reset sessions)
 - `/heartbeat:help` — Show this help message
 
 **How it works:**
@@ -32,3 +33,12 @@ Your prompt here. Claude will run this at the scheduled time.
 ```
 
 Schedule uses standard cron syntax: `minute hour day-of-month month day-of-week`
+
+**Note:** Bun is required to run the daemon. It will be auto-installed on first `/heartbeat:start` if missing.
+
+**Telegram bot:**
+- A standalone process that bridges Telegram messages to Claude sessions
+- Each Telegram user gets a persistent Claude session (with full skill/MCP/plugin support)
+- Configure in `.claude/heartbeat/settings.json` under `telegram` key
+- Run with: `bun run telegram` (separate from the daemon)
+- Users can send `/reset` in Telegram to start a fresh session
