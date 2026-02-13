@@ -2,7 +2,6 @@ import { writeFile, unlink, readdir, readFile } from "fs/promises";
 import { join } from "path";
 import { homedir } from "os";
 import { getPidPath, cleanupPidFile } from "../pid";
-import { resetSession } from "../sessions";
 
 const CLAUDE_DIR = join(process.cwd(), ".claude");
 const HEARTBEAT_DIR = join(CLAUDE_DIR, "claudeclaw");
@@ -44,7 +43,6 @@ export async function stop() {
 
   await cleanupPidFile();
   await teardownStatusline();
-  await resetSession();
 
   try {
     await unlink(join(HEARTBEAT_DIR, "state.json"));

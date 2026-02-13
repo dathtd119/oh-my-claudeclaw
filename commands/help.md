@@ -4,7 +4,7 @@ description: Show heartbeat plugin help
 
 Display this help information to the user:
 
-**ClaudeClaw** — a cron-like daemon that runs Claude prompts on a schedule.
+**ClaudeClaw** — daemon mode plus one-shot prompt/trigger runs.
 
 **Commands:**
 - `/heartbeat:start` — Initialize config and start the daemon
@@ -17,6 +17,18 @@ Display this help information to the user:
 - `/heartbeat:telegram` — Show Telegram bot status and sessions (use `clear` to reset sessions)
 - `/heartbeat:help` — Show this help message
 
+**Start command options (CLI):**
+- `bun run src/index.ts start` — normal daemon mode
+- `bun run src/index.ts start --prompt "text"` — one-shot prompt, no daemon loop
+- `bun run src/index.ts start --trigger` — start daemon and run startup trigger once
+- `bun run src/index.ts start --prompt "text" --trigger` — start daemon and run startup trigger with custom prompt
+- Add `--telegram` with `--trigger` to forward startup trigger output to configured Telegram users
+
+**Send command options (CLI):**
+- `bun run src/index.ts send "text"` — send to active daemon session
+- `bun run src/index.ts send "text" --telegram` — send and forward output to Telegram
+- If daemon is already running, use `send`; `start` will abort.
+
 **How it works:**
 - The daemon runs in the background checking your schedule every 60 seconds
 - A **heartbeat** prompt runs at a fixed interval (default: every 15 minutes)
@@ -24,7 +36,7 @@ Display this help information to the user:
 - The statusline shows a live countdown to the next run
 
 **Configuration:**
-- `.claude/claudeclaw/settings.json` — Main config (heartbeat interval, prompt, enabled)
+- `.claude/claudeclaw/settings.json` — Main config (heartbeat, telegram, security)
 - `.claude/claudeclaw/jobs/*.md` — Cron jobs with schedule frontmatter and a prompt body
 
 **Job file format:**
@@ -39,9 +51,7 @@ Schedule uses standard cron syntax: `minute hour day-of-month month day-of-week`
 
 **Note:** Bun is required to run the daemon. It will be auto-installed on first `/heartbeat:start` if missing.
 
-**Telegram bot:**
-- A standalone process that bridges Telegram messages to Claude sessions
-- Each Telegram user gets a persistent Claude session (with full skill/MCP/plugin support)
-- Configure in `.claude/claudeclaw/settings.json` under `telegram` key
-- Run with: `bun run telegram` (separate from the daemon)
-- Users can send `/reset` in Telegram to start a fresh session
+**Telegram:**
+- Configure in `.claude/claudeclaw/settings.json` under `telegram`
+- Daemon mode can run Telegram polling in-process when token is configured
+- Startup trigger `start --trigger --telegram` and daemon `send --telegram` can forward responses

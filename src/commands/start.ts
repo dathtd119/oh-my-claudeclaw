@@ -1,6 +1,6 @@
 import { writeFile, unlink, mkdir } from "fs/promises";
 import { join } from "path";
-import { run } from "../runner";
+import { run, bootstrap } from "../runner";
 import { writeState, type StateData } from "../statusline";
 import { cronMatches, nextCronMatch } from "../cron";
 import { loadJobs } from "../jobs";
@@ -19,34 +19,77 @@ const STATUSLINE_SCRIPT = `#!/usr/bin/env node
 const { readFileSync } = require("fs");
 const { join } = require("path");
 
-const STATE_FILE = join(__dirname, "claudeclaw", "state.json");
+const DIR = join(__dirname, "claudeclaw");
+const STATE_FILE = join(DIR, "state.json");
+const PID_FILE = join(DIR, "daemon.pid");
 
-function formatCountdown(ms) {
-  if (ms <= 0) return "now!";
-  const s = Math.floor(ms / 1000);
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
+const R = "\\x1b[0m";
+const DIM = "\\x1b[2m";
+const RED = "\\x1b[31m";
+const GREEN = "\\x1b[32m";
+
+function fmt(ms) {
+  if (ms <= 0) return GREEN + "now!" + R;
+  var s = Math.floor(ms / 1000);
+  var h = Math.floor(s / 3600);
+  var m = Math.floor((s % 3600) / 60);
   if (h > 0) return h + "h " + m + "m";
   if (m > 0) return m + "m";
-  return "<1m";
+  return (s % 60) + "s";
+}
+
+function alive() {
+  try {
+    var pid = readFileSync(PID_FILE, "utf-8").trim();
+    process.kill(Number(pid), 0);
+    return true;
+  } catch { return false; }
+}
+
+var B = DIM + "\\u2502" + R;
+var TL = DIM + "\\u256d" + R;
+var TR = DIM + "\\u256e" + R;
+var BL = DIM + "\\u2570" + R;
+var BR = DIM + "\\u256f" + R;
+var H = DIM + "\\u2500" + R;
+var HEADER = TL + H.repeat(6) + " \\ud83e\\udd9e ClaudeClaw \\ud83e\\udd9e " + H.repeat(6) + TR;
+var FOOTER = BL + H.repeat(30) + BR;
+
+if (!alive()) {
+  process.stdout.write(
+    HEADER + "\\n" +
+    B + "        " + RED + "\\u25cb offline" + R + "              " + B + "\\n" +
+    FOOTER
+  );
+  process.exit(0);
 }
 
 try {
-  const state = JSON.parse(readFileSync(STATE_FILE, "utf-8"));
-  const now = Date.now();
-  const parts = [];
+  var state = JSON.parse(readFileSync(STATE_FILE, "utf-8"));
+  var now = Date.now();
+  var info = [];
 
   if (state.heartbeat) {
-    parts.push("\\x1b[31m\\u2665\\x1b[0m " + formatCountdown(state.heartbeat.nextAt - now));
+    info.push("\\ud83d\\udc93 " + fmt(state.heartbeat.nextAt - now));
   }
 
-  for (const job of state.jobs || []) {
-    parts.push(job.name + " " + formatCountdown(job.nextAt - now));
+  var jc = (state.jobs || []).length;
+  info.push("\\ud83d\\udccb " + jc + " job" + (jc !== 1 ? "s" : ""));
+  info.push(GREEN + "\\u25cf live" + R);
+
+  if (state.telegram) {
+    info.push(GREEN + "\\ud83d\\udce1" + R);
   }
 
-  process.stdout.write(parts.join(" \\x1b[2m|\\x1b[0m "));
+  var mid = " " + info.join(" " + B + " ") + " ";
+
+  process.stdout.write(HEADER + "\\n" + B + mid + B + "\\n" + FOOTER);
 } catch {
-  process.stdout.write("\\x1b[31m\\u2665\\x1b[0m waiting...");
+  process.stdout.write(
+    HEADER + "\\n" +
+    B + DIM + "         waiting...         " + R + B + "\\n" +
+    FOOTER
+  );
 }
 `;
 
@@ -85,7 +128,44 @@ async function teardownStatusline() {
 
 // --- Main ---
 
-export async function start() {
+export async function start(args: string[] = []) {
+  const hasPromptFlag = args.includes("--prompt");
+  const hasTriggerFlag = args.includes("--trigger");
+  const telegramFlag = args.includes("--telegram");
+  const payload = args
+    .filter((a) => a !== "--prompt" && a !== "--trigger" && a !== "--telegram")
+    .join(" ")
+    .trim();
+  if (hasPromptFlag && !payload) {
+    console.error("Usage: claudeclaw start --prompt <prompt> [--trigger] [--telegram]");
+    process.exit(1);
+  }
+  if (!hasPromptFlag && payload) {
+    console.error("Prompt text requires `--prompt`.");
+    process.exit(1);
+  }
+  if (telegramFlag && !hasTriggerFlag) {
+    console.error("`--telegram` with `start` requires `--trigger`.");
+    process.exit(1);
+  }
+
+  // One-shot mode: explicit prompt without trigger.
+  if (hasPromptFlag && !hasTriggerFlag) {
+    const existingPid = await checkExistingDaemon();
+    if (existingPid) {
+      console.error(`\x1b[31mAborted: daemon already running in this directory (PID ${existingPid})\x1b[0m`);
+      console.error("Use `claudeclaw send <message> [--telegram]` while daemon is running.");
+      process.exit(1);
+    }
+
+    await initConfig();
+    await loadSettings();
+    const result = await run("prompt", payload);
+    console.log(result.stdout);
+    if (result.exitCode !== 0) process.exit(result.exitCode);
+    return;
+  }
+
   const existingPid = await checkExistingDaemon();
   if (existingPid) {
     console.error(`\x1b[31mAborted: daemon already running in this directory (PID ${existingPid})\x1b[0m`);
@@ -185,6 +265,23 @@ export async function start() {
     heartbeatTimer = setInterval(tick, ms);
   }
 
+  // Startup init:
+  // - trigger mode: run exactly one trigger prompt (no separate bootstrap)
+  // - normal mode: bootstrap to initialize session context
+  if (hasTriggerFlag) {
+    const triggerPrompt = hasPromptFlag ? payload : "Wake up, my friend!";
+    const triggerResult = await run("trigger", triggerPrompt);
+    console.log(triggerResult.stdout);
+    if (telegramFlag) forwardToTelegram("", triggerResult);
+    if (triggerResult.exitCode !== 0) {
+      console.error(`[${ts()}] Startup trigger failed (exit ${triggerResult.exitCode}). Daemon will continue running.`);
+    }
+  } else {
+    // Bootstrap the session first so system prompt is initial context
+    // and session.json is created immediately.
+    await bootstrap();
+  }
+
   if (currentSettings.heartbeat.enabled) scheduleHeartbeat();
 
   // --- Hot-reload loop (every 30s) ---
@@ -234,6 +331,8 @@ export async function start() {
   }, 30_000);
 
   // --- Cron tick (every 60s) ---
+  const daemonStartedAt = Date.now();
+
   function updateState() {
     const now = new Date();
     const state: StateData = {
@@ -244,6 +343,9 @@ export async function start() {
         name: job.name,
         nextAt: nextCronMatch(job.schedule, now).getTime(),
       })),
+      security: currentSettings.security.level,
+      telegram: !!currentSettings.telegram.token,
+      startedAt: daemonStartedAt,
     };
     writeState(state);
   }

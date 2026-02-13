@@ -1,6 +1,5 @@
 import { join } from "path";
 import { unlink, readdir, rename } from "fs/promises";
-import { randomUUID } from "crypto";
 
 const HEARTBEAT_DIR = join(process.cwd(), ".claude", "claudeclaw");
 const SESSION_FILE = join(HEARTBEAT_DIR, "session.json");
@@ -28,21 +27,24 @@ async function saveSession(session: GlobalSession): Promise<void> {
   await Bun.write(SESSION_FILE, JSON.stringify(session, null, 2) + "\n");
 }
 
-export async function getOrCreateSession(): Promise<{ sessionId: string; isNew: boolean }> {
+/** Returns the existing session or null. Never creates one. */
+export async function getSession(): Promise<{ sessionId: string } | null> {
   const existing = await loadSession();
   if (existing) {
     existing.lastUsedAt = new Date().toISOString();
     await saveSession(existing);
-    return { sessionId: existing.sessionId, isNew: false };
+    return { sessionId: existing.sessionId };
   }
+  return null;
+}
 
-  const session: GlobalSession = {
-    sessionId: randomUUID(),
+/** Save a session ID obtained from Claude Code's output. */
+export async function createSession(sessionId: string): Promise<void> {
+  await saveSession({
+    sessionId,
     createdAt: new Date().toISOString(),
     lastUsedAt: new Date().toISOString(),
-  };
-  await saveSession(session);
-  return { sessionId: session.sessionId, isNew: true };
+  });
 }
 
 export async function resetSession(): Promise<void> {

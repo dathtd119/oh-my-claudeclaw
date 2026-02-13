@@ -6,6 +6,9 @@ const HEARTBEAT_DIR = join(process.cwd(), ".claude", "claudeclaw");
 export interface StateData {
   heartbeat?: { nextAt: number };
   jobs: { name: string; nextAt: number }[];
+  security: string;
+  telegram: boolean;
+  startedAt: number;
 }
 
 export async function writeState(state: StateData) {

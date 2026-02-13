@@ -1,5 +1,5 @@
 ---
-description: Start the heartbeat daemon
+description: Start daemon mode or run one-shot prompt/trigger
 ---
 
 Start the heartbeat daemon for this project. Follow these steps exactly:
@@ -29,7 +29,7 @@ Start the heartbeat daemon for this project. Follow these steps exactly:
    Use AskUserQuestion:
    - "Your settings are already configured. Want to change anything?" (header: "Settings", options: "Keep current settings", "Reconfigure")
 
-   If they choose "Keep current settings", skip to step 5 (launch daemon).
+   If they choose "Keep current settings", skip to step 5 (first contact question).
    If they choose "Reconfigure", proceed to step 4 below as if nothing was configured.
 
    **If SOME sections are configured and others are not**, show the already-configured sections as a summary, then only ask about the unconfigured sections in step 4.
@@ -74,16 +74,31 @@ Start the heartbeat daemon for this project. Follow these steps exactly:
 
    Update `.claude/claudeclaw/settings.json` with their answers.
 
-5. **Launch daemon**: The daemon auto-initializes config and has a built-in safeguard against duplicate instances. Start it in the background:
-   ```bash
-   mkdir -p .claude/claudeclaw/logs && nohup bun run ${CLAUDE_PLUGIN_ROOT}/src/index.ts > .claude/claudeclaw/logs/daemon.log 2>&1 & echo $!
-   ```
-   Use the description "🦞 Starting ClaudeClaw server" for this command.
+5. **First contact destination**: Use AskUserQuestion to ask where they want first contact to fire. Build options **dynamically** based on whether Telegram was configured in step 4:
+
+   - **If Telegram IS configured** (header: "First contact"):
+     - "Open in Claude Code (Recommended)" (description: "Meet your agent in Claude Code after launch")
+     - "Fire to Telegram (Trigger)" (description: "Run start with --trigger and forward result to Telegram")
+
+   - **If Telegram is NOT configured** (header: "First contact"):
+     - "Open in Claude Code (Recommended)" (description: "Meet your agent in Claude Code after launch")
+     - "Skip" (description: "Skip for now — daemon keeps running, you can connect later")
+
+6. **Launch/start action**: Run command based on step 5 choice:
+   - **If user chose "Fire to Telegram (Trigger)"**:
+     ```bash
+     mkdir -p .claude/claudeclaw/logs && nohup bun run ${CLAUDE_PLUGIN_ROOT}/src/index.ts start --trigger --telegram > .claude/claudeclaw/logs/daemon.log 2>&1 & echo $!
+     ```
+   - **Otherwise**:
+     ```bash
+     mkdir -p .claude/claudeclaw/logs && nohup bun run ${CLAUDE_PLUGIN_ROOT}/src/index.ts > .claude/claudeclaw/logs/daemon.log 2>&1 & echo $!
+     ```
+   Use the description "Starting ClaudeClaw server" for this command.
    Wait 1 second, then check `cat .claude/claudeclaw/logs/daemon.log`. If it contains "Aborted: daemon already running", tell the user and exit.
 
-6. **Capture session ID**: Read `.claude/claudeclaw/session.json` and extract the `sessionId` field. This is the shared Claude session used by the daemon for heartbeat, jobs, and Telegram.
+7. **Capture session ID**: Read `.claude/claudeclaw/session.json` and extract the `sessionId` field. This is the shared Claude session used by the daemon for heartbeat, jobs, and Telegram.
 
-7. **Report**: Print the ASCII art below then show the PID, session, and status info.
+8. **Report**: Print the ASCII art below then show the PID, session, status info, and one-shot usage tips.
 
 CRITICAL: Output the ASCII art block below EXACTLY as-is inside a markdown code block. Do NOT re-indent, re-align, or adjust ANY whitespace. Copy every character verbatim. Only replace `<PID>` and `<WORKING_DIR>` with actual values.
 
@@ -97,12 +112,6 @@ CRITICAL: Output the ASCII art block below EXACTLY as-is inside a markdown code 
 # HELLO, I AM YOUR CLAUDECLAW!
 **Daemon is running! PID: \<PID> | Dir: \<WORKING_DIR>**
 
-**Talk to your agent directly:**
-```
-claude --resume <SESSION_ID>
-```
-Replace `<SESSION_ID>` with the actual session ID from the session file. This opens the same Claude session the daemon uses. If Telegram is configured, the conversation is shared — anything said here or in Telegram goes to the same agent context.
-
 ```
 /heartbeat:status  - check status
 /heartbeat:stop    - stop daemon
@@ -110,7 +119,25 @@ Replace `<SESSION_ID>` with the actual session ID from the session file. This op
 /heartbeat:config  - show config
 ```
 
-The daemon hot-reloads settings and jobs every 30 seconds — no restart needed.
+After printing the running state above, use AskUserQuestion:
+- Question: "Want to make me smarter?"
+- Header: "Upgrade"
+- Options:
+  - "Yes (Recommended)" (description: "Install claude-mem for larger memory and better continuity")
+  - "No" (description: "Skip plugin install for now")
+
+If user chooses "Yes (Recommended)", print:
+Just copy this into your prompt box:
+```bash
+/plugin marketplace add thedotmack/claude-mem
+/plugin install claude-mem
+```
+
+**Talk to your agent anytime from Claude Code**
+```bash
+claude --resume <SESSION_ID>
+```
+Replace `<SESSION_ID>` with the session ID captured in step 7.
 
 ---
 
@@ -142,7 +169,7 @@ The daemon hot-reloads settings and jobs every 30 seconds — no restart needed.
 - `heartbeat.prompt` — the prompt sent to Claude on each heartbeat. Can be an inline string or a file path ending in `.md`, `.txt`, or `.prompt` (relative to project root). File contents are re-read on each tick, so edits take effect without restarting the daemon.
 - `telegram.token` — Telegram bot token from @BotFather
 - `telegram.allowedUserIds` — array of numeric Telegram user IDs allowed to interact
-- `security.level` — one of: `locked`, `strict`, `moderate`, `trusted`, `unrestricted`
+- `security.level` — one of: `locked`, `strict`, `moderate`, `unrestricted`
 - `security.allowedTools` — extra tools to allow on top of the level (e.g. `["Bash(git:*)"]`)
 - `security.disallowedTools` — tools to block on top of the level
 
