@@ -640,25 +640,34 @@ function htmlPage(): string {
       left: 50%;
       bottom: 24px;
       transform: translateX(-50%);
-      width: min(1020px, calc(100% - 24px));
-      padding: 6px 8px;
+      width: min(980px, calc(100% - 24px));
+      padding: 8px 10px;
       display: flex;
-      justify-content: center;
-      flex-wrap: wrap;
-      gap: 10px;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: nowrap;
+      gap: 0;
       z-index: 2;
+      border-radius: 26px;
+      border: 1px solid #ffffff59;
+      background:
+        radial-gradient(120% 120% at 10% 0%, #ffffff38 0%, transparent 45%),
+        linear-gradient(180deg, #d7e8ff26 0%, #8ea8c51a 45%, #5f739113 100%);
+      backdrop-filter: blur(24px) saturate(1.35);
+      box-shadow:
+        inset 0 1px 0 #ffffff94,
+        inset 0 -16px 28px #101d321f,
+        0 14px 40px #0000003d;
     }
 
     .pill {
       min-height: 56px;
-      min-width: 178px;
-      padding: 9px 11px;
-      border-radius: 18px;
-      border: 1px solid #ffffff35;
-      background:
-        radial-gradient(130% 95% at 15% 0%, #ffffff38 0%, #ffffff10 42%, transparent 60%),
-        linear-gradient(180deg, #ffffff2d 0%, #d5e7ff18 45%, #0f1b2d8f 100%);
-      backdrop-filter: blur(16px) saturate(1.2);
+      flex: 1 1 0;
+      padding: 8px 12px;
+      border-radius: 0;
+      border: 0;
+      border-right: 1px solid #ffffff2e;
+      background: transparent;
       color: #e7f0ff;
       font-size: 12px;
       letter-spacing: 0.01em;
@@ -666,35 +675,26 @@ function htmlPage(): string {
       display: grid;
       align-content: center;
       gap: 2px;
-      box-shadow:
-        inset 0 1px 0 #ffffff70,
-        inset 0 -10px 16px #0b142533,
-        0 10px 24px #00000042;
-      transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
     }
-    .pill:hover {
-      transform: translateY(-1px);
-      box-shadow:
-        inset 0 1px 0 #ffffff88,
-        inset 0 -10px 16px #0b14254d,
-        0 14px 30px #0000004d;
+    .pill:last-child {
+      border-right: 0;
     }
     .pill-label {
       font-size: 10px;
       text-transform: uppercase;
       letter-spacing: 0.06em;
-      color: #cad8ee;
+      color: #e5eefc;
       opacity: 0.9;
     }
     .pill-value {
       font-size: 13px;
-      color: #f3f8ff;
+      color: #ffffff;
       font-weight: 600;
-      text-shadow: 0 1px 0 #00000022;
+      text-shadow: 0 1px 0 #00000033;
     }
     .pill-meta {
       font-size: 10px;
-      color: #c0d0e8;
+      color: #d8e4f7;
       line-height: 1.2;
       opacity: 0.9;
     }
@@ -712,9 +712,20 @@ function htmlPage(): string {
       }
       .dock {
         bottom: 14px;
+        border-radius: 18px;
+        flex-wrap: wrap;
+        gap: 4px 0;
       }
       .pill {
         font-size: 11px;
+        min-height: 52px;
+        flex: 1 1 50%;
+        border-right: 0;
+        border-bottom: 1px solid #ffffff26;
+      }
+      .pill:last-child,
+      .pill:nth-last-child(2) {
+        border-bottom: 0;
       }
     }
   </style>
