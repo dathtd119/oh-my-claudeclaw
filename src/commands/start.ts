@@ -1,5 +1,6 @@
 import { writeFile, unlink, mkdir } from "fs/promises";
 import { join } from "path";
+import { fileURLToPath } from "url";
 import { run, bootstrap } from "../runner";
 import { writeState, type StateData } from "../statusline";
 import { cronMatches, nextCronMatch } from "../cron";
@@ -13,6 +14,7 @@ const CLAUDE_DIR = join(process.cwd(), ".claude");
 const HEARTBEAT_DIR = join(CLAUDE_DIR, "claudeclaw");
 const STATUSLINE_FILE = join(CLAUDE_DIR, "statusline.cjs");
 const CLAUDE_SETTINGS_FILE = join(CLAUDE_DIR, "settings.json");
+const PREFLIGHT_SCRIPT = fileURLToPath(new URL("../preflight.ts", import.meta.url));
 
 // --- Statusline setup/teardown ---
 
@@ -373,7 +375,7 @@ export async function start(args: string[] = []) {
 
   function startPreflightInBackground(projectPath: string): void {
     try {
-      const proc = Bun.spawn([process.execPath, "run", "src/preflight.ts", projectPath], {
+      const proc = Bun.spawn([process.execPath, "run", PREFLIGHT_SCRIPT, projectPath], {
         stdin: "ignore",
         stdout: "ignore",
         stderr: "ignore",
