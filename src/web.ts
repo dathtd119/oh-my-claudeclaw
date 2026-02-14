@@ -282,6 +282,29 @@ function htmlPage(): string {
       line-height: 1.08;
       text-align: left;
     }
+    .typewriter {
+      margin: 6px 0 14px;
+      min-height: 1.4em;
+      font-family: "JetBrains Mono", monospace;
+      font-size: clamp(0.9rem, 1.8vw, 1.05rem);
+      color: #c8d6ec;
+      letter-spacing: 0.02em;
+    }
+    .typewriter::after {
+      content: "";
+      display: inline-block;
+      width: 0.62ch;
+      height: 1.05em;
+      margin-left: 0.18ch;
+      vertical-align: -0.12em;
+      background: #c8d6ec;
+      animation: caret 1s step-end infinite;
+    }
+
+    @keyframes caret {
+      0%, 49% { opacity: 1; }
+      50%, 100% { opacity: 0; }
+    }
 
     @keyframes rise {
       from { opacity: 0; transform: translateY(18px); }
@@ -376,6 +399,7 @@ function htmlPage(): string {
   ▝▜█████▛▘
     ▘▘ ▝▝</pre>
       </div>
+      <div class="typewriter" id="typewriter" aria-live="polite"></div>
       <div class="time" id="clock">--:--:--</div>
       <div class="date" id="date">Loading date...</div>
       <div class="message" id="message">Welcome back.</div>
@@ -393,6 +417,7 @@ function htmlPage(): string {
     const dateEl = $("date");
     const msgEl = $("message");
     const dockEl = $("dock");
+    const typewriterEl = $("typewriter");
 
     const dateFmt = new Intl.DateTimeFormat(undefined, {
       weekday: "long",
@@ -407,6 +432,49 @@ function htmlPage(): string {
       if (h < 18) return "Good afternoon.";
       if (h < 22) return "Good evening.";
       return "Wind down and ship clean.";
+    }
+
+    const typePhrases = [
+      "Okay human, let's do it.",
+      "Build. Refine. Ship.",
+      "Keep it simple. Keep it clean.",
+      "One focused step at a time.",
+      "Clock is live. Let's move."
+    ];
+
+    function startTypewriter() {
+      let phraseIndex = 0;
+      let charIndex = 0;
+      let deleting = false;
+
+      function step() {
+        const phrase = typePhrases[phraseIndex];
+        if (!typewriterEl) return;
+
+        if (!deleting) {
+          charIndex = Math.min(charIndex + 1, phrase.length);
+          typewriterEl.textContent = phrase.slice(0, charIndex);
+          if (charIndex === phrase.length) {
+            deleting = true;
+            setTimeout(step, 1200);
+            return;
+          }
+          setTimeout(step, 46 + Math.floor(Math.random() * 45));
+          return;
+        }
+
+        charIndex = Math.max(charIndex - 1, 0);
+        typewriterEl.textContent = phrase.slice(0, charIndex);
+        if (charIndex === 0) {
+          deleting = false;
+          phraseIndex = (phraseIndex + 1) % typePhrases.length;
+          setTimeout(step, 280);
+          return;
+        }
+        setTimeout(step, 26 + Math.floor(Math.random() * 30));
+      }
+
+      step();
     }
 
     function renderClock() {
@@ -488,6 +556,7 @@ function htmlPage(): string {
 
     renderClock();
     setInterval(renderClock, 1000);
+    startTypewriter();
 
     refreshState();
     setInterval(refreshState, 5000);
