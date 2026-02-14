@@ -439,10 +439,7 @@ function htmlPage(): string {
     .quick-job {
       margin: 18px auto 0;
       width: min(620px, calc(100vw - 36px));
-      padding: 12px;
-      border-radius: 14px;
-      background: #ffffff0d;
-      backdrop-filter: blur(8px);
+      padding: 8px 0 0;
       display: grid;
       gap: 9px;
     }
@@ -467,31 +464,34 @@ function htmlPage(): string {
     .quick-prompt,
     .quick-submit {
       border: 0;
-      border-radius: 10px;
+      border-radius: 0;
       font-family: "JetBrains Mono", monospace;
       font-size: 12px;
       color: #eef4ff;
-      background: #0e1729b8;
+      background: transparent;
     }
     .quick-input {
       height: 40px;
-      padding: 0 10px;
+      padding: 0 6px;
+      border-bottom: 1px solid #ffffff2e;
     }
     .quick-prompt {
       height: 40px;
-      padding: 10px;
+      padding: 10px 6px;
       resize: none;
+      border-bottom: 1px solid #ffffff2e;
     }
     .quick-submit {
       height: 40px;
       cursor: pointer;
-      background: #1e5a3dc4;
-      color: #aef4cf;
-      transition: transform 0.16s ease, background 0.16s ease, opacity 0.16s ease;
+      background: #1f5f40a8;
+      color: #b5f7d3;
+      border-radius: 999px;
+      transition: transform 0.16s ease, background 0.16s ease, opacity 0.16s ease, border-color 0.16s ease;
     }
     .quick-submit:hover {
       transform: translateY(-1px);
-      background: #237349d6;
+      background: #237349c7;
     }
     .quick-submit:disabled {
       opacity: 0.7;
@@ -1020,7 +1020,7 @@ function htmlPage(): string {
       <form class="quick-job" id="quick-job-form">
         <div class="quick-job-head"><span>Quick Job</span><span>Daily Cron</span></div>
         <div class="quick-job-row">
-          <input class="quick-input" id="quick-job-time" type="time" required />
+          <input class="quick-input" id="quick-job-time" type="text" placeholder="HH:MM" inputmode="numeric" pattern="^([01][0-9]|2[0-3]):[0-5][0-9]$" required />
           <textarea class="quick-prompt" id="quick-job-prompt" placeholder="Prompt for this scheduled run..." required></textarea>
           <button class="quick-submit" id="quick-job-submit" type="submit">Add Job</button>
         </div>
