@@ -117,7 +117,7 @@ ${pageStyles}
         <div class="quick-job-grid">
           <div class="quick-field quick-time-wrap">
             <div class="quick-label">Delay From Now (Minutes)</div>
-            <input class="quick-input" id="quick-job-offset" type="number" min="1" max="1440" step="5" placeholder="60" required />
+            <input class="quick-input" id="quick-job-offset" type="number" min="1" max="1440" step="5" placeholder="10" required />
             <div class="quick-time-buttons">
               <button class="quick-add" type="button" data-add-minutes="15">+15m</button>
               <button class="quick-add" type="button" data-add-minutes="30">+30m</button>

@@ -507,7 +507,7 @@ export const pageScript = String.raw`    const $ = (id) => document.getElementBy
     }
 
     if (quickJobOffset && !quickJobOffset.value) {
-      quickJobOffset.value = "60";
+      quickJobOffset.value = "10";
     }
 
     function normalizeOffsetMinutes(value) {
@@ -572,7 +572,7 @@ export const pageScript = String.raw`    const $ = (id) => document.getElementBy
       if (!quickJobOffset) return;
       const delta = Number(add.getAttribute("data-add-minutes") || "");
       if (!Number.isFinite(delta)) return;
-      const current = normalizeOffsetMinutes(quickJobOffset.value) || 60;
+      const current = normalizeOffsetMinutes(quickJobOffset.value) || 10;
       const next = Math.min(1440, current + Math.round(delta));
       quickJobOffset.value = String(next);
       updateQuickJobUi();
