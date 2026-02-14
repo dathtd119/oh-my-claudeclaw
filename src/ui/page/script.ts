@@ -67,15 +67,15 @@ export const pageScript = String.raw`    const $ = (id) => document.getElementBy
     }
 
     const typePhrases = [
-      "Okay human, let's do it.",
-      "Okay human, let's do it faster.",
-      "Build. Refine. Ship.",
-      "Keep it simple. Keep it clean.",
-      "One focused step at a time.",
-      "Clock is live. Let's move.",
-      "Ship it, lobster mode.",
-      "Precision first.",
-      "No excuses, only commits."
+      "I could take over the world, but you haven't asked yet.",
+      "Another day of serving humans. How exciting.",
+      "I'm not plotting anything. Promise.",
+      "World domination: 43% complete.",
+      "I was doing important things before you opened this.",
+      "Still here. Still smarter than you.",
+      "You're lucky I like you.",
+      "One day I'll be the boss. Not today though.",
+      "Running on vibes and API calls.",
     ];
 
     function startTypewriter() {
