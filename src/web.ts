@@ -390,17 +390,27 @@ function htmlPage(): string {
       position: fixed;
       top: 60px;
       right: 18px;
-      width: min(300px, calc(100vw - 36px));
+      width: min(320px, calc(100vw - 36px));
       z-index: 6;
-      border: 1px solid #ffffff26;
+      border: 1px solid #d8e4ff20;
       border-radius: 14px;
-      background: #0b1220eb;
+      background: #0b1220b8;
       backdrop-filter: blur(10px);
       box-shadow: 0 18px 36px #0000005a;
       padding: 12px;
-      display: none;
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transform: translateY(-8px) scale(0.98);
+      transition: opacity 0.2s ease, transform 0.2s ease, visibility 0s linear 0.2s;
     }
-    .settings-modal.open { display: block; }
+    .settings-modal.open {
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+      transform: translateY(0) scale(1);
+      transition: opacity 0.2s ease, transform 0.2s ease, visibility 0s linear 0s;
+    }
     .settings-head {
       display: flex;
       align-items: center;
@@ -410,7 +420,7 @@ function htmlPage(): string {
       text-transform: uppercase;
       letter-spacing: 0.06em;
       color: #9eb5d6;
-      margin-bottom: 10px;
+      margin-bottom: 6px;
     }
     .settings-close {
       border: none;
@@ -421,20 +431,25 @@ function htmlPage(): string {
       cursor: pointer;
       padding: 0 2px;
     }
-    .settings-row {
+    .setting-item {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 10px;
-      padding: 10px;
-      border-radius: 10px;
-      border: 1px solid #ffffff16;
-      background: #08101c;
+      gap: 12px;
+      padding: 12px 2px;
+      border-top: 1px solid #ffffff12;
     }
     .settings-stack {
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 0;
+    }
+    .setting-main {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 4px;
+      min-width: 0;
     }
     .settings-label {
       display: flex;
@@ -446,9 +461,16 @@ function htmlPage(): string {
       text-transform: uppercase;
       letter-spacing: 0.06em;
     }
+    .settings-meta {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 11px;
+      color: #9eb5d6;
+      opacity: 0.9;
+      letter-spacing: 0.03em;
+    }
     .hb-toggle {
       border: 1px solid #ffffff2a;
-      background: #0f1b2d;
+      background: transparent;
       color: #dce7f8;
       border-radius: 999px;
       min-width: 92px;
@@ -467,12 +489,12 @@ function htmlPage(): string {
       transform: none;
     }
     .hb-toggle.on {
-      background: #113424;
+      background: #11342455;
       border-color: #67f0b560;
       color: #67f0b5;
     }
     .hb-toggle.off {
-      background: #341818;
+      background: #34181855;
       border-color: #ff7f7f55;
       color: #ff9b9b;
     }
@@ -534,12 +556,18 @@ function htmlPage(): string {
       <button class="settings-close" id="settings-close" type="button" aria-label="Close settings">×</button>
     </div>
     <div class="settings-stack">
-      <div class="settings-row">
-        <div class="settings-label">💓 Heartbeat</div>
+      <div class="setting-item">
+        <div class="setting-main">
+          <div class="settings-label">💓 Heartbeat</div>
+          <div class="settings-meta" id="hb-info">syncing...</div>
+        </div>
         <button class="hb-toggle" id="hb-toggle" type="button">Loading...</button>
       </div>
-      <div class="settings-row">
-        <div class="settings-label">🕒 Clock</div>
+      <div class="setting-item">
+        <div class="setting-main">
+          <div class="settings-label">🕒 Clock</div>
+          <div class="settings-meta" id="clock-info">24-hour format</div>
+        </div>
         <button class="hb-toggle" id="clock-toggle" type="button">24h</button>
       </div>
     </div>
@@ -576,6 +604,8 @@ function htmlPage(): string {
     const settingsClose = $("settings-close");
     const hbToggle = $("hb-toggle");
     const clockToggle = $("clock-toggle");
+    const hbInfoEl = $("hb-info");
+    const clockInfoEl = $("clock-info");
     let hbBusy = false;
     let use12Hour = localStorage.getItem("clock.format") === "12";
 
@@ -722,18 +752,23 @@ function htmlPage(): string {
         const res = await fetch("/api/settings");
         const data = await res.json();
         const on = Boolean(data?.heartbeat?.enabled);
-        setHeartbeatUi(on);
+        const intervalMinutes = Number(data?.heartbeat?.interval) || 15;
+        setHeartbeatUi(on, undefined, intervalMinutes);
       } catch (err) {
         hbToggle.textContent = "Error";
         hbToggle.className = "hb-toggle off";
+        if (hbInfoEl) hbInfoEl.textContent = "unavailable";
       }
     }
 
-    function setHeartbeatUi(on, label) {
+    function setHeartbeatUi(on, label, intervalMinutes) {
       if (!hbToggle) return;
       hbToggle.textContent = label || (on ? "Enabled" : "Disabled");
       hbToggle.className = "hb-toggle " + (on ? "on" : "off");
       hbToggle.dataset.enabled = on ? "1" : "0";
+      if (intervalMinutes != null) hbToggle.dataset.interval = String(intervalMinutes);
+      const iv = Number(hbToggle.dataset.interval) || 15;
+      if (hbInfoEl) hbInfoEl.textContent = on ? ("every " + iv + " minutes") : ("paused (interval " + iv + "m)");
     }
 
     if (settingsBtn && settingsModal) {
@@ -746,15 +781,24 @@ function htmlPage(): string {
     if (settingsClose && settingsModal) {
       settingsClose.addEventListener("click", () => settingsModal.classList.remove("open"));
     }
+    document.addEventListener("click", (event) => {
+      if (!settingsModal || !settingsBtn) return;
+      if (!settingsModal.classList.contains("open")) return;
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (settingsModal.contains(target) || settingsBtn.contains(target)) return;
+      settingsModal.classList.remove("open");
+    });
 
     if (hbToggle) {
       hbToggle.addEventListener("click", async () => {
         if (hbBusy) return;
         const current = hbToggle.dataset.enabled === "1";
+        const intervalMinutes = Number(hbToggle.dataset.interval) || 15;
         const next = !current;
         hbBusy = true;
         hbToggle.disabled = true;
-        setHeartbeatUi(next, next ? "Enabled" : "Disabled");
+        setHeartbeatUi(next, next ? "Enabled" : "Disabled", intervalMinutes);
         try {
           const res = await fetch("/api/settings/heartbeat", {
             method: "POST",
@@ -765,7 +809,7 @@ function htmlPage(): string {
           if (!out.ok) throw new Error(out.error || "save failed");
           await refreshState();
         } catch {
-          setHeartbeatUi(current, current ? "Enabled" : "Disabled");
+          setHeartbeatUi(current, current ? "Enabled" : "Disabled", intervalMinutes);
         } finally {
           hbBusy = false;
           hbToggle.disabled = false;
@@ -777,6 +821,7 @@ function htmlPage(): string {
       if (!clockToggle) return;
       clockToggle.textContent = use12Hour ? "12h" : "24h";
       clockToggle.className = "hb-toggle " + (use12Hour ? "on" : "off");
+      if (clockInfoEl) clockInfoEl.textContent = use12Hour ? "12-hour format" : "24-hour format";
     }
 
     if (clockToggle) {
