@@ -260,6 +260,7 @@ function htmlPage(): string {
     .logo-art {
       width: 12ch;
       margin: 0 auto 18px;
+      transform: translateX(-0.35ch);
       color: #dbe7ff;
       filter: drop-shadow(0 8px 20px #00000040);
     }
