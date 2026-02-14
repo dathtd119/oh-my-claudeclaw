@@ -35,6 +35,7 @@ export const pageScript = String.raw`    const $ = (id) => document.getElementBy
     let use12Hour = localStorage.getItem("clock.format") === "12";
     let quickView = "jobs";
     let quickViewInitialized = false;
+    let quickViewChosenByUser = false;
     let expandedJobName = "";
     let lastRenderedJobs = [];
     let scrollAnimFrame = 0;
@@ -370,12 +371,14 @@ export const pageScript = String.raw`    const $ = (id) => document.getElementBy
       quickJobsView.classList.toggle("quick-view-hidden", !showJobs);
       quickJobForm.classList.toggle("quick-view-hidden", showJobs);
       quickView = showJobs ? "jobs" : "create";
+      if (options && options.user) quickViewChosenByUser = true;
       if (options && options.scroll) focusQuickView(quickView);
     }
 
     function syncQuickViewForJobs(jobs) {
       const count = Array.isArray(jobs) ? jobs.length : 0;
       if (count === 0) {
+        if (quickViewInitialized && quickView === "jobs" && quickViewChosenByUser) return;
         setQuickView("create");
         quickViewInitialized = true;
         return;
@@ -643,11 +646,11 @@ export const pageScript = String.raw`    const $ = (id) => document.getElementBy
     });
 
     if (quickOpenCreate) {
-      quickOpenCreate.addEventListener("click", () => setQuickView("create", { scroll: true }));
+      quickOpenCreate.addEventListener("click", () => setQuickView("create", { scroll: true, user: true }));
     }
 
     if (quickBackJobs) {
-      quickBackJobs.addEventListener("click", () => setQuickView("jobs", { scroll: true }));
+      quickBackJobs.addEventListener("click", () => setQuickView("jobs", { scroll: true, user: true }));
     }
 
     if (quickJobForm && quickJobOffset && quickJobPrompt && quickJobSubmit && quickJobStatus) {
