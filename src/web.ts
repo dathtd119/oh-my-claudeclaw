@@ -396,7 +396,7 @@ function htmlPage(): string {
     }
     .settings-btn {
       position: fixed;
-      top: 18px;
+      top: 52px;
       right: 18px;
       z-index: 5;
       border: 1px solid #ffffff2a;
@@ -419,46 +419,45 @@ function htmlPage(): string {
     }
     .repo-cta {
       position: fixed;
-      top: 18px;
-      left: 50%;
-      transform: translateX(-50%);
+      top: 0;
+      left: 0;
+      right: 0;
       z-index: 5;
-      display: inline-flex;
+      height: 34px;
+      display: flex;
       align-items: center;
-      gap: 8px;
-      padding: 9px 14px;
-      border-radius: 999px;
+      justify-content: center;
+      gap: 10px;
+      padding: 0 12px;
+      border-radius: 0;
       text-decoration: none;
       font-family: "JetBrains Mono", monospace;
       font-size: 11px;
       letter-spacing: 0.04em;
       text-transform: uppercase;
       color: #f1f6ff;
-      background: #ffffff10;
-      backdrop-filter: blur(8px);
-      box-shadow: inset 0 1px 0 #ffffff32;
-      animation: ctaEnter 520ms ease-out both, ctaFloat 4.4s ease-in-out 800ms infinite;
-      transition: transform 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+      background: linear-gradient(180deg, #ffffff18, #ffffff0d);
+      backdrop-filter: blur(6px);
+      border-bottom: 1px solid #ffffff22;
+      animation: ctaEnter 420ms ease-out both;
+      transition: background 0.18s ease;
     }
     .repo-cta:hover {
-      transform: translateX(-50%) translateY(-1px);
-      background: #ffffff18;
-      box-shadow: inset 0 1px 0 #ffffff50, 0 8px 20px #0000002a;
+      background: linear-gradient(180deg, #ffffff22, #ffffff12);
     }
-    .repo-cta:active {
-      transform: translateX(-50%) translateY(0);
+    .repo-text {
+      opacity: 0.92;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .repo-star {
       color: #ffe08f;
       animation: starPulse 1.8s ease-in-out infinite;
     }
     @keyframes ctaEnter {
-      from { opacity: 0; transform: translateX(-50%) translateY(-8px); }
-      to { opacity: 1; transform: translateX(-50%) translateY(0); }
-    }
-    @keyframes ctaFloat {
-      0%, 100% { transform: translateX(-50%) translateY(0); }
-      50% { transform: translateX(-50%) translateY(-1px); }
+      from { opacity: 0; transform: translateY(-6px); }
+      to { opacity: 1; transform: translateY(0); }
     }
     @keyframes starPulse {
       0%, 100% { opacity: 0.78; }
@@ -466,7 +465,7 @@ function htmlPage(): string {
     }
     .settings-modal {
       position: fixed;
-      top: 60px;
+      top: 94px;
       right: 18px;
       width: min(320px, calc(100vw - 36px));
       z-index: 6;
@@ -788,9 +787,12 @@ function htmlPage(): string {
         padding-bottom: 160px;
       }
       .repo-cta {
-        top: 14px;
         font-size: 10px;
-        padding: 8px 12px;
+        height: 30px;
+        gap: 7px;
+      }
+      .settings-btn {
+        top: 42px;
       }
       .dock-shell {
         bottom: 14px;
@@ -837,8 +839,7 @@ function htmlPage(): string {
     rel="noopener noreferrer"
     aria-label="Star claudeclaw on GitHub"
   >
-    <span>GitHub</span>
-    <span>Star</span>
+    <span class="repo-text">Like ClaudeClaw? Star it on GitHub</span>
     <span class="repo-star">★</span>
   </a>
   <button class="settings-btn" id="settings-btn" type="button">Settings</button>
