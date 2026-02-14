@@ -58,7 +58,7 @@ export const pageStyles = String.raw`    :root {
 
     .hero {
       text-align: center;
-      max-width: 820px;
+      width: min(820px, 100%);
       animation: rise 700ms ease-out both;
     }
 
@@ -118,11 +118,14 @@ export const pageStyles = String.raw`    :root {
     }
 
     .time {
+      display: inline-block;
+      min-width: 11ch;
       font-family: "Fraunces", serif;
       font-size: clamp(4.2rem, 15vw, 10rem);
       line-height: 0.95;
       letter-spacing: -0.04em;
       font-variant-numeric: tabular-nums;
+      text-align: center;
       text-shadow: 0 10px 35px #00000055;
       transition: text-shadow 280ms ease;
     }
@@ -148,7 +151,7 @@ export const pageStyles = String.raw`    :root {
     }
     .quick-job {
       margin: 20px auto 0;
-      width: min(720px, calc(100vw - 28px));
+      width: min(720px, 100%);
       padding: 14px;
       border: 1px solid #ffffff22;
       border-radius: 16px;
