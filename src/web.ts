@@ -602,7 +602,8 @@ function htmlPage(): string {
       "One focused step at a time.",
       "Clock is live. Let's move.",
       "Ship it, lobster mode.",
-      "Precision first."
+      "Precision first.",
+      "No excuses, only commits."
     ];
 
     function startTypewriter() {
