@@ -677,14 +677,15 @@ function htmlPage(): string {
       font-family: "JetBrains Mono", monospace;
       display: grid;
       align-content: center;
+      justify-items: center;
       gap: 3px;
     }
     .pill:last-child {
       border-right: 0;
     }
     .side-bubble {
-      width: 84px;
-      height: 84px;
+      width: 74px;
+      height: 74px;
       border-radius: 999px;
       background: #ffffff08;
       backdrop-filter: blur(10px);
@@ -701,7 +702,7 @@ function htmlPage(): string {
       opacity: 0.85;
     }
     .side-value {
-      font-size: 15px;
+      font-size: 13px;
       font-weight: 600;
       margin-top: 2px;
     }
@@ -751,7 +752,7 @@ function htmlPage(): string {
       .dock-shell {
         bottom: 14px;
         width: min(980px, calc(100% - 12px));
-        grid-template-columns: 70px minmax(0, 1fr) 70px;
+        grid-template-columns: 62px minmax(0, 1fr) 62px;
         gap: 8px;
       }
       .dock {
@@ -767,12 +768,12 @@ function htmlPage(): string {
         border-bottom: 0;
       }
       .side-bubble {
-        width: 70px;
-        height: 70px;
+        width: 62px;
+        height: 62px;
         padding: 6px;
       }
       .side-value {
-        font-size: 13px;
+        font-size: 12px;
       }
       .side-label {
         font-size: 9px;
