@@ -341,13 +341,31 @@ function htmlPage(): string {
       text-shadow: 0 10px 35px #00000055;
       transition: text-shadow 280ms ease;
     }
-    .clock-suffix {
+    .clock-main {
+      display: inline-block;
+    }
+    .clock-seconds {
       font-family: "JetBrains Mono", monospace;
-      font-size: 0.22em;
-      letter-spacing: 0.12em;
-      vertical-align: super;
-      margin-left: 0.35em;
-      opacity: 0.9;
+      font-size: 0.26em;
+      letter-spacing: 0.06em;
+      margin-left: 0.18em;
+      opacity: 0.78;
+      vertical-align: baseline;
+    }
+    .clock-meridiem {
+      display: inline-block;
+      margin-left: 0.58em;
+      padding: 0.16em 0.5em;
+      border: 1px solid #ffffff2a;
+      border-radius: 999px;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 0.16em;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+      vertical-align: middle;
+      transform: translateY(-0.18em);
+      color: #d7e4f8;
+      background: #12203866;
     }
 
     .time.ms-pulse {
@@ -642,7 +660,10 @@ function htmlPage(): string {
       const ss = String(now.getSeconds()).padStart(2, "0");
       if (use12Hour) {
         const suffix = rawH >= 12 ? "PM" : "AM";
-        clockEl.innerHTML = hh + ":" + mm + ":" + ss + '<span class="clock-suffix">' + suffix + "</span>";
+        clockEl.innerHTML =
+          '<span class="clock-main">' + hh + ":" + mm + "</span>" +
+          '<span class="clock-seconds">:' + ss + "</span>" +
+          '<span class="clock-meridiem">' + suffix + "</span>";
       } else {
         clockEl.textContent = hh + ":" + mm + ":" + ss;
       }
