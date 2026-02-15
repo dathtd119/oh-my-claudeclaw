@@ -261,7 +261,7 @@ async function callApi<T>(token: string, method: string, body?: Record<string, u
 }
 
 async function sendMessage(token: string, chatId: number, text: string): Promise<void> {
-  const normalized = normalizeTelegramText(text);
+  const normalized = normalizeTelegramText(text).replace(/\[react:[^\]\r\n]+\]/gi, "");
   const html = markdownToTelegramHtml(normalized);
   const MAX_LEN = 4096;
   for (let i = 0; i < html.length; i += MAX_LEN) {
