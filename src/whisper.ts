@@ -22,6 +22,10 @@ type WhisperDebugLog = (message: string) => void;
 
 function noopLog(): void {}
 
+function nowMs(): number {
+  return Date.now();
+}
+
 function isVersionAtLeast(version: string, minimum: string): boolean {
   const current = version.split(".").map((part) => Number.parseInt(part, 10) || 0);
   const required = minimum.split(".").map((part) => Number.parseInt(part, 10) || 0);
@@ -78,28 +82,42 @@ function isMissingWhisperExecutableError(err: unknown): boolean {
 }
 
 async function prepareWhisperAssets(printOutput: boolean): Promise<void> {
+  const startedAt = nowMs();
+  console.log(`whisper warmup: start root=${WHISPER_ROOT} version=${WHISPER_CPP_VERSION} model=${WHISPER_MODEL}`);
   await mkdir(WHISPER_ROOT, { recursive: true });
   await mkdir(MODEL_FOLDER, { recursive: true });
   await mkdir(TMP_FOLDER, { recursive: true });
+  console.log("whisper warmup: ensured directories");
 
   const whisperExecutablePath = getWhisperExecutablePathForVersion(WHISPER_PATH, WHISPER_CPP_VERSION);
+  console.log(`whisper warmup: checking executable path=${whisperExecutablePath}`);
   try {
     await access(whisperExecutablePath);
+    console.log("whisper warmup: executable exists");
   } catch {
     // Recover from a partial/broken install where whisper.cpp exists but build output is missing.
+    console.log("whisper warmup: executable missing, removing whisper.cpp for clean reinstall");
     await rm(WHISPER_PATH, { recursive: true, force: true });
   }
 
+  const installStartedAt = nowMs();
+  console.log("whisper warmup: installWhisperCpp begin");
   await installWhisperCpp({
     version: WHISPER_CPP_VERSION,
     to: WHISPER_PATH,
     printOutput,
   });
+  console.log(`whisper warmup: installWhisperCpp done in ${nowMs() - installStartedAt}ms`);
+
+  const downloadStartedAt = nowMs();
+  console.log(`whisper warmup: downloadWhisperModel begin folder=${MODEL_FOLDER}`);
   await downloadWhisperModel({
     model: WHISPER_MODEL,
     folder: MODEL_FOLDER,
     printOutput,
   });
+  console.log(`whisper warmup: downloadWhisperModel done in ${nowMs() - downloadStartedAt}ms`);
+  console.log(`whisper warmup: complete in ${nowMs() - startedAt}ms`);
 }
 
 async function ensureWavInput(inputPath: string, log: WhisperDebugLog): Promise<string> {
@@ -119,10 +137,14 @@ async function ensureWavInput(inputPath: string, log: WhisperDebugLog): Promise<
 export function warmupWhisperAssets(options?: { printOutput?: boolean }): Promise<void> {
   const printOutput = options?.printOutput ?? false;
   if (!warmupPromise) {
+    console.log(`whisper warmup: creating warmup promise printOutput=${printOutput}`);
     warmupPromise = prepareWhisperAssets(printOutput).catch((err) => {
+      console.error(`whisper warmup: failed - ${err instanceof Error ? err.message : String(err)}`);
       warmupPromise = null;
       throw err;
     });
+  } else {
+    console.log("whisper warmup: reusing in-flight warmup promise");
   }
   return warmupPromise;
 }
