@@ -14,6 +14,7 @@ Parse `$ARGUMENTS` to identify what the user wants. If no arguments are given, s
 2. Display all settings clearly:
 
    **General**
+   - Model: (e.g. `opus`, `sonnet`, `haiku` or "default")
    - Timezone: (e.g. `America/New_York` or "UTC")
 
    **Heartbeat**
@@ -95,6 +96,16 @@ Disable Telegram integration.
 2. Set `telegram.token` to `""` and `telegram.allowedUserIds` to `[]`.
 3. Write and confirm.
 
+### `model <name>` / `model`
+
+Set the Claude model to use for sessions.
+
+1. If model name is in `$ARGUMENTS`, use it directly.
+2. Otherwise, use **AskUserQuestion**: "Which Claude model should ClaudeClaw use?" (header: "Model", options: "opus (default)", "sonnet", "haiku")
+3. Read `.claude/claudeclaw/settings.json`.
+4. Set `model` to the new value.
+5. Write and confirm.
+
 ### `timezone <tz>` / `timezone`
 
 Set the IANA timezone (e.g. `America/New_York`, `Europe/London`, `UTC`).
@@ -149,6 +160,7 @@ Reset all settings to defaults.
 2. If confirmed, write the default settings:
    ```json
    {
+     "model": "",
      "timezone": "UTC",
      "timezoneOffsetMinutes": 0,
      "heartbeat": {
@@ -183,6 +195,7 @@ Location: `.claude/claudeclaw/settings.json`
 
 ```json
 {
+  "model": "opus",
   "timezone": "America/New_York",
   "timezoneOffsetMinutes": -300,
   "heartbeat": {
@@ -212,6 +225,7 @@ Location: `.claude/claudeclaw/settings.json`
 
 | Key                        | Type       | Description                                    |
 |----------------------------|------------|------------------------------------------------|
+| `model`                    | string     | Claude model (`opus`, `sonnet`, `haiku`, or full ID). Empty = default |
 | `timezone`                 | string     | IANA timezone name (e.g. `America/New_York`)   |
 | `timezoneOffsetMinutes`    | number     | UTC offset in minutes (auto-resolved from timezone) |
 | `heartbeat.enabled`        | boolean    | Whether the recurring heartbeat runs           |
