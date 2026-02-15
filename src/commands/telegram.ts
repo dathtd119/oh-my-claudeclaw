@@ -1,4 +1,4 @@
-import { run } from "../runner";
+import { ensureProjectClaudeMd, run } from "../runner";
 import { getSettings, loadSettings } from "../config";
 import { resetSession } from "../sessions";
 import { transcribeAudioToText } from "../whisper";
@@ -634,7 +634,10 @@ process.on("SIGINT", () => { running = false; });
 /** Start polling in-process (called by start.ts when token is configured) */
 export function startPolling(debug = false): void {
   telegramDebug = debug;
-  poll().catch((err) => {
+  (async () => {
+    await ensureProjectClaudeMd();
+    await poll();
+  })().catch((err) => {
     console.error(`[Telegram] Fatal: ${err}`);
   });
 }
@@ -642,5 +645,6 @@ export function startPolling(debug = false): void {
 /** Standalone entry point (bun run src/index.ts telegram) */
 export async function telegram() {
   await loadSettings();
+  await ensureProjectClaudeMd();
   await poll();
 }
