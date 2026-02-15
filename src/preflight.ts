@@ -139,6 +139,12 @@ function enableInProject(pluginKey: string, projectPath: string): void {
   writeJSON(projSettings, settings);
 }
 
+function installDepsIfPresent(dir: string, pkgMgr: string, label: string): void {
+  if (!existsSync(join(dir, "package.json"))) return;
+  console.log(`    deps (${label}): ${pkgMgr} install`);
+  run(`${pkgMgr} install`, { cwd: dir, stdio: "inherit" });
+}
+
 function startWhisperWarmupInBackground(): void {
   try {
     const proc = Bun.spawn([process.execPath, "run", WHISPER_WARMUP_SCRIPT], {
@@ -206,12 +212,12 @@ function installRepoPlugin(
     }
     copyDirSync(marketplaceDir, cacheDir);
 
+    // Install plugin root deps (used by runtime code under src/)
+    installDepsIfPresent(cacheDir, pkgMgr, "root");
+
     if (skillPath) {
       const skillDir = join(cacheDir, skillPath);
-      if (existsSync(join(skillDir, "package.json"))) {
-        console.log(`    deps: ${pkgMgr} install`);
-        run(`${pkgMgr} install`, { cwd: skillDir, stdio: "inherit" });
-      }
+      installDepsIfPresent(skillDir, pkgMgr, "skill");
     }
 
     const now = new Date().toISOString().replace(/\.\d{3}Z$/, ".000Z");
@@ -356,13 +362,11 @@ function installOfficialPlugins(
       );
 
       // Install deps if the plugin has skills with a package.json
+      installDepsIfPresent(cacheDir, pkgMgr, "root");
       const skillPath = pluginDef.skills?.[0];
       if (skillPath) {
         const skillDir = join(cacheDir, skillPath);
-        if (existsSync(join(skillDir, "package.json"))) {
-          console.log(`    deps: ${pkgMgr} install`);
-          run(`${pkgMgr} install`, { cwd: skillDir, stdio: "inherit" });
-        }
+        installDepsIfPresent(skillDir, pkgMgr, "skill");
       }
 
       // Register in installed_plugins.json
