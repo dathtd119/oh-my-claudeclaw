@@ -1,3 +1,5 @@
+![ClaudeClaw](images/banner.png)
+
 # ClaudeClaw
 
 **A lightweight, open-source OpenClaw version built into your Claude Code.**
