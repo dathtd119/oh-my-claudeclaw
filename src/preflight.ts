@@ -414,10 +414,6 @@ export function preflight(projectPath: string): void {
 
   mkdirSync(join(PLUGINS_DIR, "marketplaces"), { recursive: true });
   mkdirSync(join(PLUGINS_DIR, "cache"), { recursive: true });
-
-  // Install project's own dependencies (e.g. ogg-opus-decoder for voice)
-  installDepsIfPresent(projectPath, pkgMgr, "project");
-
   startWhisperWarmupInBackground();
 
   let installed = 0;

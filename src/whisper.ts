@@ -1,5 +1,6 @@
-import { spawnSync } from "node:child_process";
+import { execSync, spawnSync } from "node:child_process";
 import { chmod, mkdir, rename, rm, stat, access, readdir, open } from "node:fs/promises";
+import { statSync } from "node:fs";
 import { basename, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -244,7 +245,23 @@ async function prepareWhisperAssets(printOutput: boolean): Promise<void> {
   console.log(`whisper warmup: complete in ${Date.now() - startedAt}ms`);
 }
 
+function ensureOggDeps(): void {
+  const projectRoot = process.cwd();
+  const marker = join(projectRoot, "node_modules", "ogg-opus-decoder");
+  try {
+    statSync(marker);
+  } catch {
+    console.log("whisper: installing ogg-opus-decoder...");
+    const pkgMgr = (() => {
+      try { execSync("bun --version", { stdio: "ignore" }); return "bun"; } catch {}
+      return "npm";
+    })();
+    execSync(`${pkgMgr} install`, { cwd: projectRoot, stdio: "inherit" });
+  }
+}
+
 function decodeOggOpusToWavViaNode(inputPath: string, wavPath: string, log: WhisperDebugLog): void {
+  ensureOggDeps();
   log(`voice decode: running node converter`);
   const result = spawnSync("node", [OGG_MJS_CONVERTER, inputPath, wavPath], {
     encoding: "utf8",
