@@ -29,3 +29,16 @@ Things like:
 ---
 
 Add whatever helps you do your job. This is your cheat sheet.
+
+## Telegram Reaction Directive
+
+When replying for Telegram, you can include a reaction directive anywhere in the output:
+
+- Syntax: `[react:<emoji>]`
+- Example: `Nice work [react:🔥]`
+
+Runtime behavior:
+
+- The bot removes all `[react:...]` tags from the outgoing text.
+- It applies the first valid directive as a Telegram reaction to the user's message.
+- The remaining text is sent normally.

@@ -284,6 +284,28 @@ async function sendTyping(token: string, chatId: number): Promise<void> {
   await callApi(token, "sendChatAction", { chat_id: chatId, action: "typing" }).catch(() => {});
 }
 
+function extractReactionDirective(text: string): { cleanedText: string; reactionEmoji: string | null } {
+  let reactionEmoji: string | null = null;
+  const cleanedText = text
+    .replace(/\[react:([^\]\r\n]+)\]/gi, (_match, raw) => {
+      const candidate = String(raw).trim();
+      if (!reactionEmoji && candidate) reactionEmoji = candidate;
+      return "";
+    })
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return { cleanedText, reactionEmoji };
+}
+
+async function sendReaction(token: string, chatId: number, messageId: number, emoji: string): Promise<void> {
+  await callApi(token, "setMessageReaction", {
+    chat_id: chatId,
+    message_id: messageId,
+    reaction: [{ type: "emoji", emoji }],
+  });
+}
+
 let botUsername: string | null = null;
 let botId: number | null = null;
 
@@ -521,7 +543,13 @@ async function handleMessage(message: TelegramMessage): Promise<void> {
     if (result.exitCode !== 0) {
       await sendMessage(config.token, chatId, `Error (exit ${result.exitCode}): ${result.stderr || "Unknown error"}`);
     } else {
-      await sendMessage(config.token, chatId, result.stdout || "(empty response)");
+      const { cleanedText, reactionEmoji } = extractReactionDirective(result.stdout || "");
+      if (reactionEmoji) {
+        await sendReaction(config.token, chatId, message.message_id, reactionEmoji).catch((err) => {
+          console.error(`[Telegram] Failed to send reaction for ${label}: ${err instanceof Error ? err.message : err}`);
+        });
+      }
+      await sendMessage(config.token, chatId, cleanedText || "(empty response)");
     }
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
