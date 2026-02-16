@@ -224,25 +224,66 @@ export const pageScript = String.raw`    const $ = (id) => document.getElementBy
       return ss + "s";
     }
 
-    function cronTimeParts(schedule) {
-      const parts = String(schedule || "").trim().split(/\s+/);
-      if (parts.length < 2) return null;
-      const minute = Number(parts[0]);
-      const hour = Number(parts[1]);
-      if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
-        return null;
+    function matchCronField(field, value) {
+      const parts = String(field || "").split(",");
+      for (const partRaw of parts) {
+        const part = String(partRaw || "").trim();
+        if (!part) continue;
+        const pair = part.split("/");
+        const range = pair[0];
+        const stepStr = pair[1];
+        const step = stepStr ? Number.parseInt(stepStr, 10) : 1;
+        if (!Number.isInteger(step) || step <= 0) continue;
+
+        if (range === "*") {
+          if (value % step === 0) return true;
+          continue;
+        }
+
+        if (range.includes("-")) {
+          const bounds = range.split("-");
+          const lo = Number.parseInt(bounds[0], 10);
+          const hi = Number.parseInt(bounds[1], 10);
+          if (!Number.isInteger(lo) || !Number.isInteger(hi)) continue;
+          if (value >= lo && value <= hi && (value - lo) % step === 0) return true;
+          continue;
+        }
+
+        if (Number.parseInt(range, 10) === value) return true;
       }
-      return { hour, minute };
+      return false;
+    }
+
+    function cronMatchesAt(schedule, date) {
+      const parts = String(schedule || "").trim().split(/\s+/);
+      if (parts.length !== 5) return false;
+      const shifted = toOffsetDate(date);
+      const d = {
+        minute: shifted.getUTCMinutes(),
+        hour: shifted.getUTCHours(),
+        dayOfMonth: shifted.getUTCDate(),
+        month: shifted.getUTCMonth() + 1,
+        dayOfWeek: shifted.getUTCDay(),
+      };
+
+      return (
+        matchCronField(parts[0], d.minute) &&
+        matchCronField(parts[1], d.hour) &&
+        matchCronField(parts[2], d.dayOfMonth) &&
+        matchCronField(parts[3], d.month) &&
+        matchCronField(parts[4], d.dayOfWeek)
+      );
     }
 
     function nextRunAt(schedule, now) {
-      const parts = cronTimeParts(schedule);
-      if (!parts) return null;
-      const shiftedNow = toOffsetDate(now);
-      const shiftedNext = new Date(shiftedNow);
-      shiftedNext.setUTCHours(parts.hour, parts.minute, 0, 0);
-      if (shiftedNext.getTime() <= shiftedNow.getTime()) shiftedNext.setUTCDate(shiftedNext.getUTCDate() + 1);
-      return new Date(shiftedNext.getTime() - heartbeatTimezoneOffsetMinutes * 60_000);
+      const probe = new Date(now);
+      probe.setSeconds(0, 0);
+      probe.setMinutes(probe.getMinutes() + 1);
+      for (let i = 0; i < 2880; i++) {
+        if (cronMatchesAt(schedule, probe)) return new Date(probe);
+        probe.setMinutes(probe.getMinutes() + 1);
+      }
+      return null;
     }
 
     function clockFromSchedule(schedule) {
