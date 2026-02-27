@@ -180,6 +180,23 @@ ${pageStyles}
     </section>
   </main>
 
+  <section class="panel-area" id="panel-area">
+    <div class="panel-tabs">
+      <button class="panel-tab active" data-panel="sessions">Sessions</button>
+      <button class="panel-tab" data-panel="tasks">Tasks</button>
+    </div>
+    <div class="panel-content" id="panel-sessions">
+      <div class="panel-list" id="sessions-list">Loading sessions...</div>
+    </div>
+    <div class="panel-content panel-hidden" id="panel-tasks">
+      <div class="panel-actions">
+        <input class="panel-input" id="task-input" placeholder="New task description..." />
+        <button class="panel-btn" id="task-add-btn">Add</button>
+      </div>
+      <div class="panel-list" id="tasks-list">Loading tasks...</div>
+    </div>
+  </section>
+
   <div class="dock-shell">
     <aside class="side-bubble" id="jobs-bubble" aria-live="polite">
       <div class="side-icon">🗂️</div>

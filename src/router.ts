@@ -49,7 +49,7 @@ export interface ClassifyResult {
  * Returns the category for session routing.
  */
 export async function classifyMessage(text: string): Promise<ClassifyResult> {
-  const prompt = buildClassifierPrompt(text);
+  const prompt = await buildClassifierPrompt(text);
 
   try {
     const proc = Bun.spawn(
@@ -88,14 +88,20 @@ export async function classifyMessage(text: string): Promise<ClassifyResult> {
   }
 }
 
-function buildClassifierPrompt(text: string): string {
-  return `You are a message classifier. Classify this Telegram message into exactly one category.
+const CLASSIFY_PROMPT_PATH = join(process.cwd(), "prompts", "router", "CLASSIFY.md");
+let classifyTemplate: string | null = null;
 
-Categories:
-- "secretary": Messages about PostSale work — WhatsApp alerts, customer issues, network incidents, partner escalations, project status (MINEDU, COAR, PRONATEL), team coordination, department mentions (NOC, PMO, SMO, KAM, Presale, TRA, IP, Infrastructure). Also messages starting with "sec " or mentioning postsale-secretary.
-- "general": Everything else — personal questions, general AI queries, coding help, casual conversation.
+async function loadClassifyTemplate(): Promise<string> {
+  if (classifyTemplate) return classifyTemplate;
+  try {
+    classifyTemplate = await Bun.file(CLASSIFY_PROMPT_PATH).text();
+  } catch {
+    classifyTemplate = `Classify this message as "secretary" (PostSale work) or "general" (everything else). Respond JSON only: {"category":"secretary"|"general","reason":"brief"}\n\n{{MESSAGE}}`;
+  }
+  return classifyTemplate;
+}
 
-Message: "${text.replace(/"/g, '\\"').slice(0, 500)}"
-
-Respond with ONLY valid JSON: {"category": "secretary" or "general", "reason": "brief reason"}`;
+async function buildClassifierPrompt(text: string): Promise<string> {
+  const template = await loadClassifyTemplate();
+  return template.replace("{{MESSAGE}}", text.slice(0, 500));
 }

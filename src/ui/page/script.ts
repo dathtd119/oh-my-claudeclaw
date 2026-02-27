@@ -921,4 +921,110 @@ export const pageScript = String.raw`    const $ = (id) => document.getElementBy
 
     loadSettings();
     refreshState();
-    setInterval(refreshState, 1000);`;
+    setInterval(refreshState, 1000);
+
+    // === Sessions & Tasks Panel ===
+    const panelArea = $("panel-area");
+    const sessionsPanel = $("panel-sessions");
+    const tasksPanel = $("panel-tasks");
+    const sessionsList = $("sessions-list");
+    const tasksList = $("tasks-list");
+    const taskInput = $("task-input");
+    const taskAddBtn = $("task-add-btn");
+
+    // Tab switching
+    document.addEventListener("click", (e) => {
+      const tab = e.target.closest("[data-panel]");
+      if (!tab) return;
+      const panel = tab.dataset.panel;
+      document.querySelectorAll(".panel-tab").forEach(t => t.classList.toggle("active", t === tab));
+      if (sessionsPanel) sessionsPanel.classList.toggle("panel-hidden", panel !== "sessions");
+      if (tasksPanel) tasksPanel.classList.toggle("panel-hidden", panel !== "tasks");
+    });
+
+    async function refreshSessions() {
+      try {
+        const res = await fetch("/api/sessions");
+        const data = await res.json();
+        const sessions = data.sessions || [];
+        if (!sessionsList) return;
+        if (!sessions.length) { sessionsList.innerHTML = '<div class="panel-empty">No active sessions</div>'; return; }
+        sessionsList.innerHTML = sessions.map(s => {
+          const age = fmtDur(Date.now() - s.createdAt);
+          const tokens = s.contentTokens ? (Math.round(s.contentTokens/1000) + "k") : "—";
+          const lastUsed = s.lastUsedAt ? fmtDur(Date.now() - s.lastUsedAt) + " ago" : "—";
+          return '<div class="panel-item">' +
+            '<div class="panel-item-main">' +
+              '<span class="panel-item-name">' + esc(s.group) + '</span>' +
+              '<span class="panel-item-meta">' + tokens + ' tokens · ' + lastUsed + ' · age ' + age + '</span>' +
+            '</div>' +
+            '<button class="panel-item-action" data-rotate-session="' + escAttr(s.group) + '">Rotate</button>' +
+          '</div>';
+        }).join("");
+      } catch { if (sessionsList) sessionsList.innerHTML = '<div class="panel-empty">Failed to load</div>'; }
+    }
+
+    async function refreshTasks() {
+      try {
+        const res = await fetch("/api/tasks");
+        const data = await res.json();
+        const tasks = data.tasks || [];
+        if (!tasksList) return;
+        if (!tasks.length) { tasksList.innerHTML = '<div class="panel-empty">No tasks</div>'; return; }
+        tasksList.innerHTML = tasks.map(t => {
+          const statusCls = t.status === "completed" ? "done" : t.status === "failed" ? "fail" : t.status === "in_progress" ? "active" : "";
+          const age = fmtDur(Date.now() - t.createdAt);
+          return '<div class="panel-item">' +
+            '<div class="panel-item-main">' +
+              '<span class="panel-item-status ' + statusCls + '">' + esc(t.status) + '</span>' +
+              '<span class="panel-item-name">' + esc(t.description) + '</span>' +
+              '<span class="panel-item-meta">' + age + ' ago</span>' +
+            '</div>' +
+            '<button class="panel-item-action danger" data-delete-task="' + escAttr(t.id) + '">×</button>' +
+          '</div>';
+        }).join("");
+      } catch { if (tasksList) tasksList.innerHTML = '<div class="panel-empty">Failed to load</div>'; }
+    }
+
+    // Rotate session
+    document.addEventListener("click", async (e) => {
+      const btn = e.target.closest("[data-rotate-session]");
+      if (!btn) return;
+      const group = btn.getAttribute("data-rotate-session");
+      btn.disabled = true;
+      try {
+        await fetch("/api/sessions/" + encodeURIComponent(group) + "/rotate", { method: "POST" });
+        await refreshSessions();
+      } finally { btn.disabled = false; }
+    });
+
+    // Add task
+    if (taskAddBtn && taskInput) {
+      taskAddBtn.addEventListener("click", async () => {
+        const desc = taskInput.value.trim();
+        if (!desc) return;
+        taskAddBtn.disabled = true;
+        try {
+          const res = await fetch("/api/tasks", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({description: desc}) });
+          const out = await res.json();
+          if (out.ok) { taskInput.value = ""; await refreshTasks(); }
+        } finally { taskAddBtn.disabled = false; }
+      });
+    }
+
+    // Delete task
+    document.addEventListener("click", async (e) => {
+      const btn = e.target.closest("[data-delete-task]");
+      if (!btn) return;
+      const id = btn.getAttribute("data-delete-task");
+      btn.disabled = true;
+      try {
+        await fetch("/api/tasks/" + encodeURIComponent(id), { method: "DELETE" });
+        await refreshTasks();
+      } finally { btn.disabled = false; }
+    });
+
+    refreshSessions();
+    refreshTasks();
+    setInterval(refreshSessions, 10000);
+    setInterval(refreshTasks, 10000);`;
