@@ -5,6 +5,7 @@ import { buildState, buildTechnicalInfo, sanitizeSettings } from "./services/sta
 import { readHeartbeatSettings, updateHeartbeatSettings } from "./services/settings";
 import { createQuickJob, deleteJob } from "./services/jobs";
 import { readLogs } from "./services/logs";
+import { listSessions, rotateSession } from "../session-registry";
 
 export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
   const server = Bun.serve({
@@ -141,6 +142,26 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
           promptPreview: j.prompt.slice(0, 160),
         }));
         return json({ jobs });
+      }
+
+      // Session registry endpoints
+      if (url.pathname === "/api/sessions") {
+        try {
+          const sessions = await listSessions();
+          return json({ sessions });
+        } catch (err) {
+          return json({ ok: false, error: String(err) });
+        }
+      }
+
+      if (url.pathname.startsWith("/api/sessions/") && url.pathname.endsWith("/rotate") && req.method === "POST") {
+        try {
+          const group = decodeURIComponent(url.pathname.slice("/api/sessions/".length, -"/rotate".length));
+          const old = await rotateSession(group, "Manual rotation from Web UI");
+          return json({ ok: true, rotatedSessionId: old });
+        } catch (err) {
+          return json({ ok: false, error: String(err) });
+        }
       }
 
       if (url.pathname === "/api/logs") {

@@ -1,7 +1,10 @@
-import { ensureProjectClaudeMd, run, runUserMessage } from "../runner";
+import { ensureProjectClaudeMd, run, runUserMessage, type RunOptions } from "../runner";
 import { getSettings, loadSettings } from "../config";
 import { resetSession } from "../sessions";
 import { transcribeAudioToText } from "../whisper";
+import {
+  routeByReplyTo, classifyMessage, recordMessageSession,
+} from "../router";
 import { mkdir } from "node:fs/promises";
 import { extname, join } from "node:path";
 
@@ -268,25 +271,28 @@ async function callApi<T>(token: string, method: string, body?: Record<string, u
   return (await res.json()) as T;
 }
 
-async function sendMessage(token: string, chatId: number, text: string): Promise<void> {
+async function sendMessage(token: string, chatId: number, text: string): Promise<number | null> {
   const normalized = normalizeTelegramText(text).replace(/\[react:[^\]\r\n]+\]/gi, "");
   const html = markdownToTelegramHtml(normalized);
   const MAX_LEN = 4096;
+  let lastMessageId: number | null = null;
   for (let i = 0; i < html.length; i += MAX_LEN) {
     try {
-      await callApi(token, "sendMessage", {
+      const resp = await callApi<{ ok: boolean; result: { message_id: number } }>(token, "sendMessage", {
         chat_id: chatId,
         text: html.slice(i, i + MAX_LEN),
         parse_mode: "HTML",
       });
+      if (resp.ok) lastMessageId = resp.result.message_id;
     } catch {
-      // Fallback to plain text if HTML parsing fails
-      await callApi(token, "sendMessage", {
+      const resp = await callApi<{ ok: boolean; result: { message_id: number } }>(token, "sendMessage", {
         chat_id: chatId,
         text: normalized.slice(i, i + MAX_LEN),
       });
+      if (resp.ok) lastMessageId = resp.result.message_id;
     }
   }
+  return lastMessageId;
 }
 
 async function sendTyping(token: string, chatId: number): Promise<void> {
@@ -588,7 +594,32 @@ async function handleMessage(message: TelegramMessage): Promise<void> {
       );
     }
     const prefixedPrompt = promptParts.join("\n");
-    const result = await runUserMessage("telegram", prefixedPrompt);
+
+    // Multi-session routing: reply-to check → classifier → default
+    let sessionGroup: string | undefined;
+    if (replyToMsgId) {
+      const routed = await routeByReplyTo(replyToMsgId);
+      if (routed) {
+        sessionGroup = routed;
+        debugLog(`Routed by reply-to ${replyToMsgId} → group=${routed}`);
+      }
+    }
+    if (!sessionGroup && text.trim()) {
+      try {
+        const classification = await classifyMessage(text);
+        debugLog(`Classified message → ${classification.category} (${classification.reason})`);
+        if (classification.category === "secretary") sessionGroup = "secretary";
+      } catch (err) {
+        debugLog(`Classification failed: ${err instanceof Error ? err.message : err}`);
+      }
+    }
+
+    const runOptions: RunOptions = {};
+    if (sessionGroup) {
+      runOptions.sessionGroup = sessionGroup;
+    }
+
+    const result = await runUserMessage("telegram", prefixedPrompt, runOptions);
 
     if (result.exitCode !== 0) {
       await sendMessage(config.token, chatId, `Error (exit ${result.exitCode}): ${result.stderr || "Unknown error"}`);
@@ -599,7 +630,10 @@ async function handleMessage(message: TelegramMessage): Promise<void> {
           console.error(`[Telegram] Failed to send reaction for ${label}: ${err instanceof Error ? err.message : err}`);
         });
       }
-      await sendMessage(config.token, chatId, cleanedText || "(empty response)");
+      const botMsgId = await sendMessage(config.token, chatId, cleanedText || "(empty response)");
+      if (botMsgId && sessionGroup) {
+        await recordMessageSession(botMsgId, sessionGroup).catch(() => {});
+      }
     }
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);

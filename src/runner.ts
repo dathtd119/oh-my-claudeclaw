@@ -2,11 +2,17 @@ import { mkdir, readFile, writeFile } from "fs/promises";
 import { join } from "path";
 import { existsSync } from "fs";
 import { getSession, createSession } from "./sessions";
+import {
+  getSessionForGroup,
+  createSessionForGroup,
+  updateTokenCount,
+  rotateSession,
+} from "./session-registry";
+import { estimateSessionTokens } from "./token-estimator";
 import { getSettings, type ModelConfig, type SecurityConfig } from "./config";
 import { buildClockPromptPrefix } from "./timezone";
 
 const LOGS_DIR = join(process.cwd(), ".claude/claudeclaw/logs");
-// Resolve prompts relative to the claudeclaw installation, not the project dir
 const PROMPTS_DIR = join(import.meta.dir, "..", "prompts");
 const HEARTBEAT_PROMPT_FILE = join(PROMPTS_DIR, "heartbeat", "HEARTBEAT.md");
 const PROJECT_CLAUDE_MD = join(process.cwd(), "CLAUDE.md");
@@ -14,26 +20,39 @@ const LEGACY_PROJECT_CLAUDE_MD = join(process.cwd(), ".claude", "CLAUDE.md");
 const CLAUDECLAW_BLOCK_START = "<!-- claudeclaw:managed:start -->";
 const CLAUDECLAW_BLOCK_END = "<!-- claudeclaw:managed:end -->";
 
+const DEFAULT_ROTATION_THRESHOLD = 120_000;
+
 export interface RunResult {
   stdout: string;
   stderr: string;
   exitCode: number;
 }
 
-const RATE_LIMIT_PATTERN = /you(?:'|’)ve hit your limit/i;
+export interface RunOptions {
+  sessionGroup?: string;
+  model?: string;
+  tools?: string;
+  settingSources?: string;
+  effort?: string;
+  maxTurns?: number;
+  noSessionPersistence?: boolean;
+}
 
-// Serial queue — prevents concurrent --resume on the same session
-let queue: Promise<unknown> = Promise.resolve();
+const RATE_LIMIT_PATTERN = /you(?:'|')ve hit your limit/i;
 
-function enqueue<T>(fn: () => Promise<T>): Promise<T> {
-  const task = queue.then(fn, fn);
-  queue = task.catch(() => {});
+// Per-group serial queues — prevents concurrent --resume on same session
+const groupQueues: Map<string, Promise<unknown>> = new Map();
+let statelessCounter = 0;
+
+function enqueue<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const prev = groupQueues.get(key) ?? Promise.resolve();
+  const task = prev.then(fn, fn);
+  groupQueues.set(key, task.catch(() => {}));
   return task;
 }
 
 function extractRateLimitMessage(stdout: string, stderr: string): string | null {
-  const candidates = [stdout, stderr];
-  for (const text of candidates) {
+  for (const text of [stdout, stderr]) {
     const trimmed = text.trim();
     if (trimmed && RATE_LIMIT_PATTERN.test(trimmed)) return trimmed;
   }
@@ -84,11 +103,7 @@ async function runClaudeOnce(
   ]);
   await proc.exited;
 
-  return {
-    rawStdout,
-    stderr,
-    exitCode: proc.exitCode ?? 1,
-  };
+  return { rawStdout, stderr, exitCode: proc.exitCode ?? 1 };
 }
 
 const PROJECT_DIR = process.cwd();
@@ -101,18 +116,12 @@ const DIR_SCOPE_PROMPT = [
 ].join("\n");
 
 export async function ensureProjectClaudeMd(): Promise<void> {
-  // Preflight-only initialization: never rewrite an existing project CLAUDE.md.
   if (existsSync(PROJECT_CLAUDE_MD)) return;
 
   const promptContent = (await loadPrompts()).trim();
-  const managedBlock = [
-    CLAUDECLAW_BLOCK_START,
-    promptContent,
-    CLAUDECLAW_BLOCK_END,
-  ].join("\n");
+  const managedBlock = [CLAUDECLAW_BLOCK_START, promptContent, CLAUDECLAW_BLOCK_END].join("\n");
 
   let content = "";
-
   if (existsSync(LEGACY_PROJECT_CLAUDE_MD)) {
     try {
       const legacy = await readFile(LEGACY_PROJECT_CLAUDE_MD, "utf8");
@@ -155,10 +164,7 @@ function buildSecurityArgs(security: SecurityConfig): string[] {
       args.push("--disallowedTools", "Bash,WebSearch,WebFetch");
       break;
     case "moderate":
-      // all tools available, scoped to project dir via system prompt
-      break;
     case "unrestricted":
-      // all tools, no directory restriction
       break;
   }
 
@@ -172,7 +178,6 @@ function buildSecurityArgs(security: SecurityConfig): string[] {
   return args;
 }
 
-/** Load and concatenate all prompt files from the prompts/ directory. */
 async function loadPrompts(): Promise<string> {
   const selectedPromptFiles = [
     join(PROMPTS_DIR, "IDENTITY.md"),
@@ -195,52 +200,93 @@ async function loadPrompts(): Promise<string> {
 
 export async function loadHeartbeatPromptTemplate(): Promise<string> {
   try {
-    const content = await Bun.file(HEARTBEAT_PROMPT_FILE).text();
-    return content.trim();
+    return (await Bun.file(HEARTBEAT_PROMPT_FILE).text()).trim();
   } catch {
     return "";
   }
 }
 
-async function execClaude(name: string, prompt: string): Promise<RunResult> {
+async function checkAndRotate(group: string): Promise<void> {
+  const entry = await getSessionForGroup(group);
+  if (!entry) return;
+
+  const tokens = await estimateSessionTokens(entry.sessionId);
+  await updateTokenCount(group, tokens);
+
+  const settings = getSettings();
+  const threshold = settings.sessionRotation?.threshold ?? DEFAULT_ROTATION_THRESHOLD;
+  if (tokens < threshold) return;
+
+  console.log(
+    `[${new Date().toLocaleTimeString()}] Session ${group} at ${tokens} tokens (threshold ${threshold}), rotating...`
+  );
+  await rotateSession(group, `Auto-rotated at ${tokens} tokens`);
+}
+
+async function execClaude(name: string, prompt: string, options?: RunOptions): Promise<RunResult> {
   await mkdir(LOGS_DIR, { recursive: true });
 
-  const existing = await getSession();
+  const group = options?.sessionGroup ?? "default";
+
+  let existing: { sessionId: string } | null = null;
+  if (!options?.noSessionPersistence) {
+    if (options?.sessionGroup) await checkAndRotate(group);
+    existing = options?.sessionGroup
+      ? await getSessionForGroup(group)
+      : await getSession();
+  }
+
   const isNew = !existing;
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const logFile = join(LOGS_DIR, `${name}-${timestamp}.log`);
 
-  const { security, model, api, fallback } = getSettings();
-  const primaryConfig: ModelConfig = { model, api };
-  const fallbackConfig: ModelConfig = {
-    model: fallback?.model ?? "",
-    api: fallback?.api ?? "",
+  const settings = getSettings();
+  const modelOverride = options?.model;
+  const primaryConfig: ModelConfig = {
+    model: modelOverride ?? settings.model,
+    api: settings.api,
   };
-  const securityArgs = buildSecurityArgs(security);
+  const fallbackConfig: ModelConfig = {
+    model: settings.fallback?.model ?? "",
+    api: settings.fallback?.api ?? "",
+  };
+  const securityArgs = buildSecurityArgs(settings.security);
 
   console.log(
-    `[${new Date().toLocaleTimeString()}] Running: ${name} (${isNew ? "new session" : `resume ${existing.sessionId.slice(0, 8)}`}, security: ${security.level})`
+    `[${new Date().toLocaleTimeString()}] Running: ${name} (group=${group}, ${isNew ? "new session" : `resume ${existing!.sessionId.slice(0, 8)}`}, security: ${settings.security.level})`
   );
 
-  // New session: use json output to capture Claude's session_id
-  // Resumed session: use text output with --resume
   const outputFormat = isNew ? "json" : "text";
   const args = ["claude", "-p", prompt, "--output-format", outputFormat, ...securityArgs];
 
   if (!isNew) {
-    args.push("--resume", existing.sessionId);
+    args.push("--resume", existing!.sessionId);
   }
 
-  // Build the appended system prompt: prompt files + directory scoping
-  // This is passed on EVERY invocation (not just new sessions) because
-  // --append-system-prompt does not persist across --resume.
+  // Apply per-job CLI overrides
+  if (options?.noSessionPersistence) {
+    args.push("--no-input");
+  }
+  if (options?.tools) {
+    const toolsIdx = args.indexOf("--tools");
+    if (toolsIdx >= 0) args.splice(toolsIdx, 2);
+    args.push("--tools", options.tools);
+  }
+  if (options?.settingSources) {
+    args.push("--setting-sources", options.settingSources);
+  }
+  if (options?.effort) {
+    args.push("--effort", options.effort);
+  }
+  if (options?.maxTurns) {
+    args.push("--max-turns", String(options.maxTurns));
+  }
+
+  // Append system prompt
   const promptContent = await loadPrompts();
-  const appendParts: string[] = [
-    "You are running inside ClaudeClaw.",
-  ];
+  const appendParts: string[] = ["You are running inside ClaudeClaw."];
   if (promptContent) appendParts.push(promptContent);
 
-  // Load the project's CLAUDE.md if it exists
   if (existsSync(PROJECT_CLAUDE_MD)) {
     try {
       const claudeMd = await Bun.file(PROJECT_CLAUDE_MD).text();
@@ -250,12 +296,11 @@ async function execClaude(name: string, prompt: string): Promise<RunResult> {
     }
   }
 
-  if (security.level !== "unrestricted") appendParts.push(DIR_SCOPE_PROMPT);
+  if (settings.security.level !== "unrestricted") appendParts.push(DIR_SCOPE_PROMPT);
   if (appendParts.length > 0) {
     args.push("--append-system-prompt", appendParts.join("\n\n"));
   }
 
-  // Strip CLAUDECODE env var so child claude processes don't think they're nested
   const { CLAUDECODE: _, ...cleanEnv } = process.env;
   const baseEnv = { ...cleanEnv } as Record<string, string>;
 
@@ -282,31 +327,29 @@ async function execClaude(name: string, prompt: string): Promise<RunResult> {
     stdout = rateLimitMessage;
   }
 
-  // For new sessions, parse the JSON to extract session_id and result text
   if (!rateLimitMessage && isNew && exitCode === 0) {
     try {
       const json = JSON.parse(rawStdout);
       sessionId = json.session_id;
       stdout = json.result ?? "";
-      // Save the real session ID from Claude Code
-      await createSession(sessionId);
-      console.log(`[${new Date().toLocaleTimeString()}] Session created: ${sessionId}`);
+      if (options?.sessionGroup) {
+        await createSessionForGroup(group, sessionId);
+      } else if (!options?.noSessionPersistence) {
+        await createSession(sessionId);
+      }
+      console.log(`[${new Date().toLocaleTimeString()}] Session created: ${sessionId} (group=${group})`);
     } catch (e) {
       console.error(`[${new Date().toLocaleTimeString()}] Failed to parse session from Claude output:`, e);
     }
   }
 
-  const result: RunResult = {
-    stdout,
-    stderr,
-    exitCode,
-  };
+  const result: RunResult = { stdout, stderr, exitCode };
 
   const output = [
     `# ${name}`,
     `Date: ${new Date().toISOString()}`,
-    `Session: ${sessionId} (${isNew ? "new" : "resumed"})`,
-    `Model config: ${usedFallback ? "fallback" : "primary"}`,
+    `Session: ${sessionId} (${isNew ? "new" : "resumed"}, group=${group})`,
+    `Model: ${usedFallback ? "fallback" : "primary"}${modelOverride ? ` (override: ${modelOverride})` : ""}`,
     `Prompt: ${prompt}`,
     `Exit code: ${result.exitCode}`,
     "",
@@ -321,8 +364,13 @@ async function execClaude(name: string, prompt: string): Promise<RunResult> {
   return result;
 }
 
-export async function run(name: string, prompt: string): Promise<RunResult> {
-  return enqueue(() => execClaude(name, prompt));
+export async function run(name: string, prompt: string, options?: RunOptions): Promise<RunResult> {
+  if (options?.noSessionPersistence) {
+    const key = `__stateless_${++statelessCounter}`;
+    return enqueue(key, () => execClaude(name, prompt, options));
+  }
+  const group = options?.sessionGroup ?? "default";
+  return enqueue(group, () => execClaude(name, prompt, options));
 }
 
 function prefixUserMessageWithClock(prompt: string): string {
@@ -336,14 +384,10 @@ function prefixUserMessageWithClock(prompt: string): string {
   }
 }
 
-export async function runUserMessage(name: string, prompt: string): Promise<RunResult> {
-  return run(name, prefixUserMessageWithClock(prompt));
+export async function runUserMessage(name: string, prompt: string, options?: RunOptions): Promise<RunResult> {
+  return run(name, prefixUserMessageWithClock(prompt), options);
 }
 
-/**
- * Bootstrap the session: fires Claude with the system prompt so the
- * session is created immediately. No-op if a session already exists.
- */
 export async function bootstrap(): Promise<void> {
   const existing = await getSession();
   if (existing) return;

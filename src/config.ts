@@ -58,6 +58,11 @@ export interface SecurityConfig {
   disallowedTools: string[];
 }
 
+export interface SessionRotationConfig {
+  threshold: number;
+  enabled: boolean;
+}
+
 export interface Settings {
   model: string;
   api: string;
@@ -68,6 +73,7 @@ export interface Settings {
   telegram: TelegramConfig;
   security: SecurityConfig;
   web: WebConfig;
+  sessionRotation?: SessionRotationConfig;
 }
 
 export interface ModelConfig {
@@ -142,6 +148,10 @@ function parseSettings(raw: Record<string, any>): Settings {
       host: raw.web?.host ?? "127.0.0.1",
       port: Number.isFinite(raw.web?.port) ? Number(raw.web.port) : 4632,
     },
+    sessionRotation: raw.sessionRotation ? {
+      threshold: Number.isFinite(raw.sessionRotation?.threshold) ? Number(raw.sessionRotation.threshold) : 120000,
+      enabled: raw.sessionRotation?.enabled !== false,
+    } : undefined,
   };
 }
 

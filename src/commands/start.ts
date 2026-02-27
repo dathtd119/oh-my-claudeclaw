@@ -1,7 +1,7 @@
 import { writeFile, unlink, mkdir } from "fs/promises";
 import { join } from "path";
 import { fileURLToPath } from "url";
-import { run, runUserMessage, bootstrap, ensureProjectClaudeMd, loadHeartbeatPromptTemplate } from "../runner";
+import { run, runUserMessage, bootstrap, ensureProjectClaudeMd, loadHeartbeatPromptTemplate, type RunOptions } from "../runner";
 import { writeState, type StateData } from "../statusline";
 import { cronMatches, nextCronMatch } from "../cron";
 import { clearJobSchedule, loadJobs } from "../jobs";
@@ -337,7 +337,7 @@ export async function start(args: string[] = []) {
   const daemonStartedAt = Date.now();
 
   // --- Telegram ---
-  let telegramSend: ((chatId: number, text: string) => Promise<void>) | null = null;
+  let telegramSend: ((chatId: number, text: string) => Promise<number | null>) | null = null;
   let telegramToken = "";
 
   async function initTelegram(token: string) {
@@ -633,8 +633,17 @@ export async function start(args: string[] = []) {
     const now = new Date();
     for (const job of currentJobs) {
       if (cronMatches(job.schedule, now, currentSettings.timezoneOffsetMinutes)) {
+        const jobOptions: RunOptions = {};
+        if (job.sessionGroup) jobOptions.sessionGroup = job.sessionGroup;
+        if (job.model) jobOptions.model = job.model;
+        if (job.tools) jobOptions.tools = job.tools;
+        if (job.settingSources) jobOptions.settingSources = job.settingSources;
+        if (job.effort) jobOptions.effort = job.effort;
+        if (job.maxTurns) jobOptions.maxTurns = job.maxTurns;
+        if (!job.sessionGroup) jobOptions.noSessionPersistence = true;
+
         resolvePrompt(job.prompt)
-          .then((prompt) => run(job.name, prompt))
+          .then((prompt) => run(job.name, prompt, jobOptions))
           .then((r) => {
             if (job.notify === false) return;
             if (job.notify === "error" && r.exitCode === 0) return;

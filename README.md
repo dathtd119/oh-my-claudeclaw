@@ -1,38 +1,92 @@
-![ClaudeClaw](images/banner.png)
+# oh-my-claudeclaw
 
-<p align="center"><b>A lightweight, open-source OpenClaw version built into your Claude Code.</b></p>
+A fork of [claudeclaw](https://github.com/dathtd119/claudeclaw) that adds multi-session architecture, per-job configuration, parallel execution, and intelligent Telegram routing.
 
-ClaudeClaw turns your Claude Code into a personal assistant that never sleeps. It runs as a background daemon, executing tasks on a schedule, responding to messages on Telegram, transcribing voice commands, and integrating with any service you need.
+## What's Different from Vanilla Claudeclaw
 
-## Why ClaudeClaw?
+| Feature | claudeclaw | oh-my-claudeclaw |
+|---------|-----------|-----------------|
+| Sessions | Single shared session for everything | Per-group session isolation |
+| Execution | Serial queue (one job at a time) | Parallel execution across groups |
+| Job config | schedule + notify only | model, tools, effort, maxTurns, sessionGroup |
+| Telegram routing | All messages → same session | Classifier routes to secretary/general sessions |
+| Session rotation | Manual reset only | Auto-rotate at token threshold (120k default) |
+| Token tracking | None | Estimates content tokens from JSONL transcripts |
 
-**Zero API overhead.** No separate API keys, no token accounting, no billing surprises. Runs entirely within your Claude Code subscription with smart context management.
+## New Concepts
 
-**Deploy in minutes.** One plugin install and one command gets you a running daemon with Telegram. No containers, no infrastructure, no dependency headaches.
+### Session Groups
 
-**Built-in observability.** A web dashboard to monitor runs, edit scheduled jobs, and inspect logs in real time.
+Jobs and Telegram messages are assigned to **session groups**. Each group maintains its own Claude session, enabling:
 
-## Getting Started in 5 Minutes
+- **Isolation**: Secretary work doesn't pollute general conversation context
+- **Parallelism**: Different groups execute concurrently
+- **Persistence**: Groups with `sessionGroup` in frontmatter resume their session; stateless jobs get fresh sessions
+
+### Job Frontmatter Extensions
+
+```yaml
+---
+schedule: "0 8 * * *"
+recurring: true
+notify: true
+session_group: secretary    # persistent session group
+model: haiku                # override default model
+tools: "Read,Bash,Skill"    # restrict available tools
+effort: low                 # claude --effort flag
+max_turns: 5                # limit conversation turns
+---
+```
+
+Jobs without `session_group` run stateless (no `--resume`, fully parallel).
+
+### Telegram Message Routing
+
+1. **Reply-to routing**: If user replies to a bot message, route to the same session group that produced it
+2. **Classifier (Layer 1)**: Stateless Haiku call classifies message as `secretary` or `general`
+3. **Fallback**: Default to `general` group
+
+### Session Rotation
+
+When a session group's token count exceeds the threshold (default 120k), the session is archived and a new one created. Configure in `settings.json`:
+
+```json
+{
+  "sessionRotation": {
+    "threshold": 120000,
+    "enabled": true
+  }
+}
+```
+
+## API Endpoints (Web UI)
+
+New endpoints added to the existing web dashboard:
+
+- `GET /api/sessions` — list active session groups with token counts
+- `POST /api/sessions/:group/rotate` — force session rotation
+
+## Installation
 
 ```bash
-claude plugin marketplace add moazbuilds/claudeclaw
-claude plugin install claudeclaw
+# As a Claude Code plugin (replaces claudeclaw)
+claude plugin add dathtd119/oh-my-claudeclaw
 ```
-Then open a Claude Code session and run:
+
+## Architecture
+
 ```
-/claudeclaw:start
+src/
+├── session-registry.ts   # Multi-session storage + rotation
+├── token-estimator.ts    # JSONL token estimation (~55ms/6MB)
+├── router.ts             # Telegram message classifier + reply-to tracking
+├── runner.ts             # RunOptions, per-group queues
+├── sessions.ts           # Backward-compatible shim → session-registry
+├── jobs.ts               # Extended frontmatter parsing
+├── config.ts             # sessionRotation config
+├── commands/
+│   ├── start.ts          # Passes RunOptions to job execution
+│   └── telegram.ts       # 3-layer routing, reply-to tracking
+└── ui/
+    └── server.ts         # Sessions API endpoints
 ```
-The setup wizard walks you through model, heartbeat, Telegram, and security, then your daemon is live with a web dashboard.
-
-## Features
-
-- **Heartbeat** periodic check-ins on a configurable interval with quiet hours support
-- **Cron Jobs** schedule any prompt with standard cron syntax, timezone-aware
-- **Telegram Bot** chat with your agent from anywhere with text, images, and voice
-- **Web Dashboard** monitor runs, edit jobs, view logs in real time
-- **Security Levels** four granular levels from read-only to full system access
-- **Model Selection** choose between Opus, Sonnet, or Haiku per project
-
-![ClaudeClaw Status Bar](images/bar.png)
-
-![ClaudeClaw Dashboard](images/dashboard.png)
