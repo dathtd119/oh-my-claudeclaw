@@ -6,6 +6,7 @@ import { readHeartbeatSettings, updateHeartbeatSettings } from "./services/setti
 import { createQuickJob, deleteJob } from "./services/jobs";
 import { readLogs } from "./services/logs";
 import { listSessions, rotateSession } from "../session-registry";
+import { listTasks, createTask, updateTask, deleteTask } from "../tasks";
 
 export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
   const server = Bun.serve({
@@ -159,6 +160,48 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
           const group = decodeURIComponent(url.pathname.slice("/api/sessions/".length, -"/rotate".length));
           const old = await rotateSession(group, "Manual rotation from Web UI");
           return json({ ok: true, rotatedSessionId: old });
+        } catch (err) {
+          return json({ ok: false, error: String(err) });
+        }
+      }
+
+      // Task endpoints
+      if (url.pathname === "/api/tasks" && req.method === "GET") {
+        try {
+          return json({ tasks: await listTasks() });
+        } catch (err) {
+          return json({ ok: false, error: String(err) });
+        }
+      }
+
+      if (url.pathname === "/api/tasks" && req.method === "POST") {
+        try {
+          const body = await req.json() as { description?: string };
+          if (!body.description) throw new Error("description required");
+          const task = await createTask(body.description);
+          return json({ ok: true, task });
+        } catch (err) {
+          return json({ ok: false, error: String(err) });
+        }
+      }
+
+      if (url.pathname.startsWith("/api/tasks/") && req.method === "PATCH") {
+        try {
+          const id = decodeURIComponent(url.pathname.slice("/api/tasks/".length));
+          const body = await req.json() as { status?: string; result?: string };
+          const task = await updateTask(id, body as any);
+          if (!task) return json({ ok: false, error: "not found" });
+          return json({ ok: true, task });
+        } catch (err) {
+          return json({ ok: false, error: String(err) });
+        }
+      }
+
+      if (url.pathname.startsWith("/api/tasks/") && req.method === "DELETE") {
+        try {
+          const id = decodeURIComponent(url.pathname.slice("/api/tasks/".length));
+          const deleted = await deleteTask(id);
+          return json({ ok: deleted, ...(deleted ? {} : { error: "not found" }) });
         } catch (err) {
           return json({ ok: false, error: String(err) });
         }

@@ -223,7 +223,7 @@ async function checkAndRotate(group: string): Promise<void> {
   await rotateSession(group, `Auto-rotated at ${tokens} tokens`);
 }
 
-async function execClaude(name: string, prompt: string, options?: RunOptions): Promise<RunResult> {
+export async function execClaude(name: string, prompt: string, options?: RunOptions): Promise<RunResult> {
   await mkdir(LOGS_DIR, { recursive: true });
 
   const group = options?.sessionGroup ?? "default";
