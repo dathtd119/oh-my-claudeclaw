@@ -125,17 +125,38 @@ ${pageStyles}
       <div class="message" id="message">Welcome back.</div>
       <section class="quick-job" id="quick-jobs-view">
         <div class="quick-job-head quick-job-head-row">
-          <div>
-            <div class="quick-job-title">Jobs List</div>
-            <div class="quick-job-sub">Scheduled runs loaded from runtime jobs</div>
-            <div class="quick-jobs-next" id="quick-jobs-next">Next job in --</div>
+          <div class="main-tabs">
+            <button class="main-tab active" data-main-tab="jobs">Jobs</button>
+            <button class="main-tab" data-main-tab="sessions">Sessions</button>
+            <button class="main-tab" data-main-tab="tasks">Tasks</button>
           </div>
-          <button class="quick-open-create" id="quick-open-create" type="button">Create Job</button>
+          <div id="main-tab-actions">
+            <button class="quick-open-create" id="quick-open-create" type="button">Create Job</button>
+          </div>
         </div>
-        <div class="quick-jobs-list quick-jobs-list-main" id="quick-jobs-list">
-          <div class="quick-jobs-empty">Loading jobs...</div>
+        <div class="main-tab-panel" id="tab-jobs">
+          <div class="quick-job-sub">Scheduled runs · <span id="quick-jobs-next">Next job in --</span></div>
+          <div class="quick-jobs-list quick-jobs-list-main" id="quick-jobs-list">
+            <div class="quick-jobs-empty">Loading jobs...</div>
+          </div>
+          <div class="quick-status" id="quick-jobs-status"></div>
         </div>
-        <div class="quick-status" id="quick-jobs-status"></div>
+        <div class="main-tab-panel main-tab-hidden" id="tab-sessions">
+          <div class="quick-job-sub">Active session groups and token usage</div>
+          <div class="quick-jobs-list" id="sessions-list">
+            <div class="quick-jobs-empty">Loading sessions...</div>
+          </div>
+        </div>
+        <div class="main-tab-panel main-tab-hidden" id="tab-tasks">
+          <div class="quick-job-sub">One-shot tasks</div>
+          <div class="task-add-row">
+            <input class="task-add-input" id="task-input" placeholder="New task description..." />
+            <button class="task-add-btn" id="task-add-btn" type="button">Add</button>
+          </div>
+          <div class="quick-jobs-list" id="tasks-list">
+            <div class="quick-jobs-empty">No tasks</div>
+          </div>
+        </div>
       </section>
       <form class="quick-job quick-view-hidden" id="quick-job-form">
         <div class="quick-job-head">
@@ -179,23 +200,6 @@ ${pageStyles}
       </form>
     </section>
   </main>
-
-  <section class="panel-area" id="panel-area">
-    <div class="panel-tabs">
-      <button class="panel-tab active" data-panel="sessions">Sessions</button>
-      <button class="panel-tab" data-panel="tasks">Tasks</button>
-    </div>
-    <div class="panel-content" id="panel-sessions">
-      <div class="panel-list" id="sessions-list">Loading sessions...</div>
-    </div>
-    <div class="panel-content panel-hidden" id="panel-tasks">
-      <div class="panel-actions">
-        <input class="panel-input" id="task-input" placeholder="New task description..." />
-        <button class="panel-btn" id="task-add-btn">Add</button>
-      </div>
-      <div class="panel-list" id="tasks-list">Loading tasks...</div>
-    </div>
-  </section>
 
   <div class="dock-shell">
     <aside class="side-bubble" id="jobs-bubble" aria-live="polite">

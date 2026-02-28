@@ -405,6 +405,7 @@ export const pageScript = String.raw`    const $ = (id) => document.getElementBy
           expandedJobName = "";
         }
         renderJobsList(lastRenderedJobs);
+
         syncQuickViewForJobs(state.jobs);
         if (uptimeBubbleEl) {
           uptimeBubbleEl.innerHTML =
@@ -420,6 +421,7 @@ export const pageScript = String.raw`    const $ = (id) => document.getElementBy
         lastRenderedJobs = [];
         expandedJobName = "";
         renderJobsList([]);
+
         syncQuickViewForJobs([]);
         if (uptimeBubbleEl) {
           uptimeBubbleEl.innerHTML = '<div class="side-icon">⏱️</div><div class="side-value">-</div><div class="side-label">Uptime</div>';
@@ -923,23 +925,29 @@ export const pageScript = String.raw`    const $ = (id) => document.getElementBy
     refreshState();
     setInterval(refreshState, 1000);
 
-    // === Sessions & Tasks Panel ===
-    const panelArea = $("panel-area");
-    const sessionsPanel = $("panel-sessions");
-    const tasksPanel = $("panel-tasks");
+    // === Main Tab Switching (Jobs / Sessions / Tasks) ===
+    const tabJobs = $("tab-jobs");
+    const tabSessions = $("tab-sessions");
+    const tabTasks = $("tab-tasks");
+    const mainTabActions = $("main-tab-actions");
     const sessionsList = $("sessions-list");
     const tasksList = $("tasks-list");
     const taskInput = $("task-input");
     const taskAddBtn = $("task-add-btn");
+    let activeMainTab = "jobs";
 
-    // Tab switching
     document.addEventListener("click", (e) => {
-      const tab = e.target.closest("[data-panel]");
+      const tab = e.target.closest("[data-main-tab]");
       if (!tab) return;
-      const panel = tab.dataset.panel;
-      document.querySelectorAll(".panel-tab").forEach(t => t.classList.toggle("active", t === tab));
-      if (sessionsPanel) sessionsPanel.classList.toggle("panel-hidden", panel !== "sessions");
-      if (tasksPanel) tasksPanel.classList.toggle("panel-hidden", panel !== "tasks");
+      const name = tab.dataset.mainTab;
+      activeMainTab = name;
+      document.querySelectorAll(".main-tab").forEach(t => t.classList.toggle("active", t === tab));
+      if (tabJobs) tabJobs.classList.toggle("main-tab-hidden", name !== "jobs");
+      if (tabSessions) tabSessions.classList.toggle("main-tab-hidden", name !== "sessions");
+      if (tabTasks) tabTasks.classList.toggle("main-tab-hidden", name !== "tasks");
+      if (mainTabActions) mainTabActions.style.display = name === "jobs" ? "" : "none";
+      if (name === "sessions") refreshSessions();
+      if (name === "tasks") refreshTasks();
     });
 
     async function refreshSessions() {
@@ -948,20 +956,24 @@ export const pageScript = String.raw`    const $ = (id) => document.getElementBy
         const data = await res.json();
         const sessions = data.sessions || [];
         if (!sessionsList) return;
-        if (!sessions.length) { sessionsList.innerHTML = '<div class="panel-empty">No active sessions</div>'; return; }
+        if (!sessions.length) { sessionsList.innerHTML = '<div class="quick-jobs-empty">No active sessions</div>'; return; }
         sessionsList.innerHTML = sessions.map(s => {
-          const age = fmtDur(Date.now() - s.createdAt);
-          const tokens = s.contentTokens ? (Math.round(s.contentTokens/1000) + "k") : "—";
+          const created = formatOffsetDate(s.createdAt, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: use12Hour });
           const lastUsed = s.lastUsedAt ? fmtDur(Date.now() - s.lastUsedAt) + " ago" : "—";
-          return '<div class="panel-item">' +
-            '<div class="panel-item-main">' +
-              '<span class="panel-item-name">' + esc(s.group) + '</span>' +
-              '<span class="panel-item-meta">' + tokens + ' tokens · ' + lastUsed + ' · age ' + age + '</span>' +
+          const tokens = s.contentTokens ? (Math.round(s.contentTokens/1000) + "k tokens") : "no data";
+          const sid = s.sessionId ? s.sessionId.slice(0, 8) + "…" : "—";
+          return '<div class="quick-job-item">' +
+            '<div class="quick-job-item-main">' +
+              '<div class="quick-job-line" style="cursor:default">' +
+                '<span class="quick-job-item-name">' + esc(s.group) + '</span>' +
+                '<span class="quick-job-item-time">' + esc(tokens) + '</span>' +
+                '<span class="quick-job-item-cooldown">' + esc(lastUsed) + '</span>' +
+              '</div>' +
+              '<div class="session-detail">Started ' + esc(created) + ' · Session ' + esc(sid) + '</div>' +
             '</div>' +
-            '<button class="panel-item-action" data-rotate-session="' + escAttr(s.group) + '">Rotate</button>' +
           '</div>';
         }).join("");
-      } catch { if (sessionsList) sessionsList.innerHTML = '<div class="panel-empty">Failed to load</div>'; }
+      } catch { if (sessionsList) sessionsList.innerHTML = '<div class="quick-jobs-empty">Failed to load</div>'; }
     }
 
     async function refreshTasks() {
@@ -970,33 +982,22 @@ export const pageScript = String.raw`    const $ = (id) => document.getElementBy
         const data = await res.json();
         const tasks = data.tasks || [];
         if (!tasksList) return;
-        if (!tasks.length) { tasksList.innerHTML = '<div class="panel-empty">No tasks</div>'; return; }
+        if (!tasks.length) { tasksList.innerHTML = '<div class="quick-jobs-empty">No tasks</div>'; return; }
         tasksList.innerHTML = tasks.map(t => {
           const statusCls = t.status === "completed" ? "done" : t.status === "failed" ? "fail" : t.status === "in_progress" ? "active" : "";
           const age = fmtDur(Date.now() - t.createdAt);
-          return '<div class="panel-item">' +
-            '<div class="panel-item-main">' +
-              '<span class="panel-item-status ' + statusCls + '">' + esc(t.status) + '</span>' +
-              '<span class="panel-item-name">' + esc(t.description) + '</span>' +
-              '<span class="panel-item-meta">' + age + ' ago</span>' +
+          return '<div class="quick-job-item">' +
+            '<div class="quick-job-item-main">' +
+              '<div class="quick-job-line" style="cursor:default">' +
+                '<span><span class="task-status-badge ' + statusCls + '">' + esc(t.status) + '</span>' + esc(t.description) + '</span>' +
+                '<span class="quick-job-item-cooldown">' + esc(age) + '</span>' +
+              '</div>' +
             '</div>' +
-            '<button class="panel-item-action danger" data-delete-task="' + escAttr(t.id) + '">×</button>' +
+            '<button class="quick-job-delete" type="button" data-delete-task="' + escAttr(t.id) + '">Delete</button>' +
           '</div>';
         }).join("");
-      } catch { if (tasksList) tasksList.innerHTML = '<div class="panel-empty">Failed to load</div>'; }
+      } catch { if (tasksList) tasksList.innerHTML = '<div class="quick-jobs-empty">Failed to load</div>'; }
     }
-
-    // Rotate session
-    document.addEventListener("click", async (e) => {
-      const btn = e.target.closest("[data-rotate-session]");
-      if (!btn) return;
-      const group = btn.getAttribute("data-rotate-session");
-      btn.disabled = true;
-      try {
-        await fetch("/api/sessions/" + encodeURIComponent(group) + "/rotate", { method: "POST" });
-        await refreshSessions();
-      } finally { btn.disabled = false; }
-    });
 
     // Add task
     if (taskAddBtn && taskInput) {
@@ -1026,5 +1027,5 @@ export const pageScript = String.raw`    const $ = (id) => document.getElementBy
 
     refreshSessions();
     refreshTasks();
-    setInterval(refreshSessions, 10000);
-    setInterval(refreshTasks, 10000);`;
+    setInterval(refreshSessions, 15000);
+    setInterval(refreshTasks, 15000);`;
