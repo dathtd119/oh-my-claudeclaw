@@ -130,8 +130,11 @@ ${pageStyles}
             <button class="main-tab" data-main-tab="sessions">Sessions</button>
             <button class="main-tab" data-main-tab="tasks">Tasks</button>
           </div>
-          <div id="main-tab-actions">
-            <button class="quick-open-create" id="quick-open-create" type="button">Create Job</button>
+          <div class="quick-job-head-right">
+            <div id="main-tab-actions">
+              <button class="quick-open-create" id="quick-open-create" type="button">Create Job</button>
+            </div>
+            <button class="expand-btn" id="expand-btn" type="button" title="Expand">⤢</button>
           </div>
         </div>
         <div class="main-tab-panel" id="tab-jobs">

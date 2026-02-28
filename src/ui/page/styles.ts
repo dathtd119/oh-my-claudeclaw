@@ -1148,4 +1148,34 @@ export const pageStyles = String.raw`    :root {
     .task-status-badge.done { background: rgba(100,200,120,0.15); color: #a8f1ca; }
     .task-status-badge.fail { background: rgba(255,100,100,0.15); color: #ffa0a0; }
     .task-status-badge.active { background: rgba(100,150,255,0.15); color: #a0c0ff; }
-    .session-detail { font-size: 0.75rem; color: rgba(255,255,255,0.45); margin-top: 0.15rem; }`;
+    .session-detail { font-size: 0.75rem; color: rgba(255,255,255,0.45); margin-top: 0.15rem; }
+
+    /* Header right side */
+    .quick-job-head-right { display: flex; align-items: center; gap: 0.3rem; }
+
+    /* Expand/collapse */
+    .expand-btn { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: rgba(255,255,255,0.5); width: 32px; height: 32px; border-radius: 6px; cursor: pointer; font-size: 1rem; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+    .expand-btn:hover { background: rgba(255,255,255,0.12); color: #fff; }
+
+    /* Resize handle */
+    .quick-job { resize: vertical; overflow: auto; min-height: 120px; max-height: 80vh; }
+    .quick-job::-webkit-resizer { background: rgba(255,255,255,0.1); border-radius: 2px; }
+
+    /* Expanded state */
+    body.expanded .logo-art,
+    body.expanded .typewriter,
+    body.expanded .date,
+    body.expanded .message { display: none; }
+    body.expanded .time { font-size: 1.2rem; margin: 0.3rem 0; }
+    body.expanded .hero { padding-top: 0.5rem; gap: 0; }
+    body.expanded .stage { min-height: auto; padding: 0; }
+    body.expanded .quick-job { margin-top: 0.5rem; }
+    body.expanded .quick-jobs-list-main { max-height: calc(100vh - 180px); overflow-y: auto; }
+    body.expanded .main-tab-panel { max-height: calc(100vh - 180px); overflow-y: auto; }
+    body.expanded .dock-shell { transform: scale(0.75); transform-origin: bottom center; opacity: 0.6; }
+    body.expanded .dock-shell:hover { opacity: 1; transform: scale(1); }
+    body.expanded .side-bubble { display: none; }
+    body.expanded .dock { padding: 0.3rem 0.6rem; gap: 0.3rem; }
+    body.expanded .pill { padding: 0.2rem 0.5rem; font-size: 0.7rem; }
+    body.expanded .pill-label { font-size: 0.65rem; }
+    body.expanded .pill-value { font-size: 0.7rem; }`;
