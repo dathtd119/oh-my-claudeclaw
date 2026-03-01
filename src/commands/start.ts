@@ -9,6 +9,7 @@ import { writePidFile, cleanupPidFile, checkExistingDaemon } from "../pid";
 import { initConfig, loadSettings, reloadSettings, resolvePrompt, type Settings } from "../config";
 import { getDayAndMinuteAtOffset } from "../timezone";
 import { startWebUi, type WebServerHandle } from "../web";
+import { startWhatsAppServer, type WhatsAppServerHandle } from "../whatsapp";
 import type { Job } from "../jobs";
 
 const CLAUDE_DIR = join(process.cwd(), ".claude");
@@ -243,9 +244,11 @@ export async function start(args: string[] = []) {
   await setupStatusline();
   await writePidFile();
   let web: WebServerHandle | null = null;
+  let wa: WhatsAppServerHandle | null = null;
 
   async function shutdown() {
     if (web) web.stop();
+    if (wa) wa.stop();
     await teardownStatusline();
     await cleanupPidFile();
     process.exit(0);
@@ -333,6 +336,14 @@ export async function start(args: string[] = []) {
     web = startWebWithFallback(currentSettings.web.host, webPort);
     currentSettings.web.port = web.port;
     console.log(`[${new Date().toLocaleTimeString()}] Web UI listening on http://${web.host}:${web.port}`);
+  }
+
+  if (currentSettings.whatsapp.enabled) {
+    try {
+      wa = startWhatsAppServer(currentSettings.whatsapp, process.cwd());
+    } catch (err) {
+      console.error(`[${new Date().toLocaleTimeString()}] WhatsApp server failed to start:`, err);
+    }
   }
 
   // --- Helpers ---
