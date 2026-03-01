@@ -1,18 +1,18 @@
 import { writeFile, unlink, mkdir } from "fs/promises";
 import { join } from "path";
 import { fileURLToPath } from "url";
-import { run, runUserMessage, bootstrap, ensureProjectClaudeMd, loadHeartbeatPromptTemplate, type RunOptions } from "../runner";
+import { run, runUserMessage, bootstrap, ensureProjectClaudeMd, type RunOptions } from "../runner";
 import { writeState, type StateData } from "../statusline";
 import { cronMatches, nextCronMatch } from "../cron";
 import { clearJobSchedule, loadJobs } from "../jobs";
 import { writePidFile, cleanupPidFile, checkExistingDaemon } from "../pid";
-import { initConfig, loadSettings, reloadSettings, resolvePrompt, type HeartbeatConfig, type Settings } from "../config";
+import { initConfig, loadSettings, reloadSettings, resolvePrompt, type Settings } from "../config";
 import { getDayAndMinuteAtOffset } from "../timezone";
 import { startWebUi, type WebServerHandle } from "../web";
+import { startWhatsAppServer, type WhatsAppServerHandle } from "../whatsapp";
 import type { Job } from "../jobs";
 
 const CLAUDE_DIR = join(process.cwd(), ".claude");
-const HEARTBEAT_DIR = join(CLAUDE_DIR, "claudeclaw");
 const STATUSLINE_FILE = join(CLAUDE_DIR, "statusline.cjs");
 const CLAUDE_SETTINGS_FILE = join(CLAUDE_DIR, "settings.json");
 const PREFLIGHT_SCRIPT = fileURLToPath(new URL("../preflight.ts", import.meta.url));
@@ -73,9 +73,6 @@ try {
   var now = Date.now();
   var info = [];
 
-  if (state.heartbeat) {
-    info.push("\\ud83d\\udc93 " + fmt(state.heartbeat.nextAt - now));
-  }
 
   var jc = (state.jobs || []).length;
   info.push("\\ud83d\\udccb " + jc + " job" + (jc !== 1 ? "s" : ""));
@@ -96,65 +93,6 @@ try {
   );
 }
 `;
-
-const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
-
-function parseClockMinutes(value: string): number | null {
-  const match = value.match(/^([01]\d|2[0-3]):([0-5]\d)$/);
-  if (!match) return null;
-  return Number(match[1]) * 60 + Number(match[2]);
-}
-
-function isHeartbeatExcludedNow(config: HeartbeatConfig, timezoneOffsetMinutes: number): boolean {
-  return isHeartbeatExcludedAt(config, timezoneOffsetMinutes, new Date());
-}
-
-function isHeartbeatExcludedAt(config: HeartbeatConfig, timezoneOffsetMinutes: number, at: Date): boolean {
-  if (!Array.isArray(config.excludeWindows) || config.excludeWindows.length === 0) return false;
-  const local = getDayAndMinuteAtOffset(at, timezoneOffsetMinutes);
-
-  for (const window of config.excludeWindows) {
-    const start = parseClockMinutes(window.start);
-    const end = parseClockMinutes(window.end);
-    if (start == null || end == null) continue;
-    const days = Array.isArray(window.days) && window.days.length > 0 ? window.days : ALL_DAYS;
-    const sameDay = start < end;
-
-    if (sameDay) {
-      if (days.includes(local.day) && local.minute >= start && local.minute < end) return true;
-      continue;
-    }
-
-    if (start === end) {
-      if (days.includes(local.day)) return true;
-      continue;
-    }
-
-    if (local.minute >= start && days.includes(local.day)) return true;
-    const previousDay = (local.day + 6) % 7;
-    if (local.minute < end && days.includes(previousDay)) return true;
-  }
-
-  return false;
-}
-
-function nextAllowedHeartbeatAt(
-  config: HeartbeatConfig,
-  timezoneOffsetMinutes: number,
-  intervalMs: number,
-  fromMs: number
-): number {
-  const interval = Math.max(60_000, Math.round(intervalMs));
-  let candidate = fromMs + interval;
-  let guard = 0;
-
-  while (isHeartbeatExcludedAt(config, timezoneOffsetMinutes, new Date(candidate)) && guard < 20_000) {
-    candidate += interval;
-    guard++;
-  }
-
-  return candidate;
-}
 
 async function setupStatusline() {
   await mkdir(CLAUDE_DIR, { recursive: true });
@@ -306,9 +244,11 @@ export async function start(args: string[] = []) {
   await setupStatusline();
   await writePidFile();
   let web: WebServerHandle | null = null;
+  let wa: WhatsAppServerHandle | null = null;
 
   async function shutdown() {
     if (web) web.stop();
+    if (wa) wa.stop();
     await teardownStatusline();
     await cleanupPidFile();
     process.exit(0);
@@ -323,7 +263,6 @@ export async function start(args: string[] = []) {
     console.log(`    + allowed: ${settings.security.allowedTools.join(", ")}`);
   if (settings.security.disallowedTools.length > 0)
     console.log(`    - blocked: ${settings.security.disallowedTools.join(", ")}`);
-  console.log(`  Heartbeat: ${settings.heartbeat.enabled ? `every ${settings.heartbeat.interval}m` : "disabled"}`);
   console.log(`  Web UI: ${webEnabled ? `http://${settings.web.host}:${webPort}` : "disabled"}`);
   if (debugFlag) console.log("  Debug: enabled");
   console.log(`  Jobs loaded: ${jobs.length}`);
@@ -332,8 +271,6 @@ export async function start(args: string[] = []) {
   // --- Mutable state ---
   let currentSettings: Settings = settings;
   let currentJobs: Job[] = jobs;
-  let nextHeartbeatAt = 0;
-  let heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
   const daemonStartedAt = Date.now();
 
   // --- Telegram ---
@@ -376,51 +313,12 @@ export async function start(args: string[] = []) {
           getSnapshot: () => ({
             pid: process.pid,
             startedAt: daemonStartedAt,
-            heartbeatNextAt: nextHeartbeatAt,
             settings: currentSettings,
             jobs: currentJobs,
           }),
-          onHeartbeatEnabledChanged: (enabled) => {
-            if (currentSettings.heartbeat.enabled === enabled) return;
-            currentSettings.heartbeat.enabled = enabled;
-            scheduleHeartbeat();
-            updateState();
-            console.log(`[${ts()}] Heartbeat ${enabled ? "enabled" : "disabled"} from Web UI`);
-          },
-          onHeartbeatSettingsChanged: (patch) => {
-            let changed = false;
-            if (typeof patch.enabled === "boolean" && currentSettings.heartbeat.enabled !== patch.enabled) {
-              currentSettings.heartbeat.enabled = patch.enabled;
-              changed = true;
-            }
-            if (typeof patch.interval === "number" && Number.isFinite(patch.interval)) {
-              const interval = Math.max(1, Math.min(1440, Math.round(patch.interval)));
-              if (currentSettings.heartbeat.interval !== interval) {
-                currentSettings.heartbeat.interval = interval;
-                changed = true;
-              }
-            }
-          if (typeof patch.prompt === "string" && currentSettings.heartbeat.prompt !== patch.prompt) {
-            currentSettings.heartbeat.prompt = patch.prompt;
-            changed = true;
-          }
-          if (Array.isArray(patch.excludeWindows)) {
-            const prev = JSON.stringify(currentSettings.heartbeat.excludeWindows);
-            const next = JSON.stringify(patch.excludeWindows);
-            if (prev !== next) {
-              currentSettings.heartbeat.excludeWindows = patch.excludeWindows;
-              changed = true;
-            }
-          }
-          if (!changed) return;
-          scheduleHeartbeat();
-          updateState();
-            console.log(`[${ts()}] Heartbeat settings updated from Web UI`);
-          },
           onJobsChanged: async () => {
             currentJobs = await loadJobs();
-            scheduleHeartbeat();
-            updateState();
+                    updateState();
             console.log(`[${ts()}] Jobs reloaded from Web UI`);
           },
         });
@@ -438,6 +336,14 @@ export async function start(args: string[] = []) {
     web = startWebWithFallback(currentSettings.web.host, webPort);
     currentSettings.web.port = web.port;
     console.log(`[${new Date().toLocaleTimeString()}] Web UI listening on http://${web.host}:${web.port}`);
+  }
+
+  if (currentSettings.whatsapp.enabled) {
+    try {
+      wa = startWhatsAppServer(currentSettings.whatsapp, process.cwd());
+    } catch (err) {
+      console.error(`[${new Date().toLocaleTimeString()}] WhatsApp server failed to start:`, err);
+    }
   }
 
   // --- Helpers ---
@@ -470,64 +376,7 @@ export async function start(args: string[] = []) {
   }
 
   // --- Heartbeat scheduling ---
-  function scheduleHeartbeat() {
-    if (heartbeatTimer) clearTimeout(heartbeatTimer);
-    heartbeatTimer = null;
-
-    if (!currentSettings.heartbeat.enabled) {
-      nextHeartbeatAt = 0;
-      return;
-    }
-
-    const ms = currentSettings.heartbeat.interval * 60_000;
-    nextHeartbeatAt = nextAllowedHeartbeatAt(
-      currentSettings.heartbeat,
-      currentSettings.timezoneOffsetMinutes,
-      ms,
-      Date.now()
-    );
-
-    function tick() {
-      if (isHeartbeatExcludedNow(currentSettings.heartbeat, currentSettings.timezoneOffsetMinutes)) {
-        console.log(`[${ts()}] Heartbeat skipped (excluded window)`);
-        nextHeartbeatAt = nextAllowedHeartbeatAt(
-          currentSettings.heartbeat,
-          currentSettings.timezoneOffsetMinutes,
-          ms,
-          Date.now()
-        );
-        return;
-      }
-      Promise.all([
-        resolvePrompt(currentSettings.heartbeat.prompt),
-        loadHeartbeatPromptTemplate(),
-      ])
-        .then(([prompt, template]) => {
-          const userPromptSection = prompt.trim()
-            ? `User custom heartbeat prompt:\n${prompt.trim()}`
-            : "";
-          const mergedPrompt = [template.trim(), userPromptSection]
-            .filter((part) => part.length > 0)
-            .join("\n\n");
-          if (!mergedPrompt) return null;
-          return run("heartbeat", mergedPrompt);
-        })
-        .then((r) => {
-          if (r) forwardToTelegram("", r);
-        });
-      nextHeartbeatAt = nextAllowedHeartbeatAt(
-        currentSettings.heartbeat,
-        currentSettings.timezoneOffsetMinutes,
-        ms,
-        Date.now()
-      );
-    }
-
-    heartbeatTimer = setTimeout(function runAndReschedule() {
-      tick();
-      heartbeatTimer = setTimeout(runAndReschedule, ms);
-    }, ms);
-  }
+  // Heartbeat scheduling removed — use cron jobs instead
 
   // Startup init:
   // - trigger mode: run exactly one trigger prompt (no separate bootstrap)
@@ -549,22 +398,12 @@ export async function start(args: string[] = []) {
   // Install plugins without blocking daemon startup.
   startPreflightInBackground(process.cwd());
 
-  if (currentSettings.heartbeat.enabled) scheduleHeartbeat();
 
   // --- Hot-reload loop (every 30s) ---
   setInterval(async () => {
     try {
       const newSettings = await reloadSettings();
       const newJobs = await loadJobs();
-
-      // Detect heartbeat config changes
-      const hbChanged =
-        newSettings.heartbeat.enabled !== currentSettings.heartbeat.enabled ||
-        newSettings.heartbeat.interval !== currentSettings.heartbeat.interval ||
-        newSettings.heartbeat.prompt !== currentSettings.heartbeat.prompt ||
-        newSettings.timezoneOffsetMinutes !== currentSettings.timezoneOffsetMinutes ||
-        newSettings.timezone !== currentSettings.timezone ||
-        JSON.stringify(newSettings.heartbeat.excludeWindows) !== JSON.stringify(currentSettings.heartbeat.excludeWindows);
 
       // Detect security config changes
       const secChanged =
@@ -577,10 +416,8 @@ export async function start(args: string[] = []) {
       }
 
       if (hbChanged) {
-        console.log(`[${ts()}] Config change detected — heartbeat: ${newSettings.heartbeat.enabled ? `every ${newSettings.heartbeat.interval}m` : "disabled"}`);
         currentSettings = newSettings;
-        scheduleHeartbeat();
-      } else {
+          } else {
         currentSettings = newSettings;
       }
       if (web) {
@@ -608,9 +445,6 @@ export async function start(args: string[] = []) {
   function updateState() {
     const now = new Date();
     const state: StateData = {
-      heartbeat: currentSettings.heartbeat.enabled
-        ? { nextAt: nextHeartbeatAt }
-        : undefined,
       jobs: currentJobs.map((job) => ({
         name: job.name,
         nextAt: nextCronMatch(job.schedule, now, currentSettings.timezoneOffsetMinutes).getTime(),

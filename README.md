@@ -12,6 +12,7 @@ A fork of [claudeclaw](https://github.com/dathtd119/claudeclaw) that adds multi-
 | Telegram routing | All messages → same session | Classifier routes to secretary/general sessions |
 | Session rotation | Manual reset only | Auto-rotate at token threshold (120k default) |
 | Token tracking | None | Estimates content tokens from JSONL transcripts |
+| Reason | Vanilla, minimal use | Overengineered it because I can and love the project |
 
 ## New Concepts
 

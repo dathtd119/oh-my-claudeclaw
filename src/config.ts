@@ -26,6 +26,15 @@ const DEFAULT_SETTINGS: Settings = {
   telegram: { token: "", allowedUserIds: [] },
   security: { level: "moderate", allowedTools: [], disallowedTools: [] },
   web: { enabled: false, host: "127.0.0.1", port: 4632 },
+  whatsapp: {
+    enabled: false,
+    accessToken: "",
+    phoneNumberId: "",
+    verifyToken: "",
+    allowedSender: "",
+    port: 9998,
+    sessionGroup: "whatsapp",
+  },
 };
 
 export interface HeartbeatExcludeWindow {
@@ -73,6 +82,7 @@ export interface Settings {
   telegram: TelegramConfig;
   security: SecurityConfig;
   web: WebConfig;
+  whatsapp: WhatsAppConfig;
   sessionRotation?: SessionRotationConfig;
 }
 
@@ -85,6 +95,16 @@ export interface WebConfig {
   enabled: boolean;
   host: string;
   port: number;
+}
+
+export interface WhatsAppConfig {
+  enabled: boolean;
+  accessToken: string;
+  phoneNumberId: string;
+  verifyToken: string;
+  allowedSender: string;
+  port: number;
+  sessionGroup: string;
 }
 
 let cached: Settings | null = null;
@@ -147,6 +167,15 @@ function parseSettings(raw: Record<string, any>): Settings {
       enabled: raw.web?.enabled ?? false,
       host: raw.web?.host ?? "127.0.0.1",
       port: Number.isFinite(raw.web?.port) ? Number(raw.web.port) : 4632,
+    },
+    whatsapp: {
+      enabled: raw.whatsapp?.enabled ?? false,
+      accessToken: raw.whatsapp?.accessToken ?? "",
+      phoneNumberId: raw.whatsapp?.phoneNumberId ?? "",
+      verifyToken: raw.whatsapp?.verifyToken ?? "",
+      allowedSender: raw.whatsapp?.allowedSender ?? "",
+      port: Number.isFinite(raw.whatsapp?.port) ? Number(raw.whatsapp.port) : 9998,
+      sessionGroup: raw.whatsapp?.sessionGroup ?? "whatsapp",
     },
     sessionRotation: raw.sessionRotation ? {
       threshold: Number.isFinite(raw.sessionRotation?.threshold) ? Number(raw.sessionRotation.threshold) : 120000,

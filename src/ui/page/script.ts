@@ -950,6 +950,16 @@ export const pageScript = String.raw`    const $ = (id) => document.getElementBy
       if (name === "tasks") refreshTasks();
     });
 
+    // === Expand / Collapse Toggle ===
+    const expandBtn = $("expand-btn");
+    if (expandBtn) {
+      expandBtn.addEventListener("click", () => {
+        document.body.classList.toggle("expanded");
+        expandBtn.textContent = document.body.classList.contains("expanded") ? "\u2921" : "\u2922";
+        expandBtn.title = document.body.classList.contains("expanded") ? "Collapse" : "Expand";
+      });
+    }
+
     async function refreshSessions() {
       try {
         const res = await fetch("/api/sessions");

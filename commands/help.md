@@ -1,10 +1,10 @@
 ---
-description: Show heartbeat plugin help
+description: Show ClaudeClaw plugin help
 ---
 
 Display this help information to the user:
 
-**ClaudeClaw** — daemon mode plus one-shot prompt/trigger runs.
+**ClaudeClaw** — daemon mode with cron job scheduling (heartbeat disabled as of 2026-02-28).
 
 **Commands:**
 - `/heartbeat:start` — Initialize config and start the daemon
@@ -32,13 +32,13 @@ Display this help information to the user:
 
 **How it works:**
 - The daemon runs in the background checking your schedule every 60 seconds
-- A **heartbeat** prompt runs at a fixed interval (default: every 15 minutes)
 - **Jobs** are markdown files in `.claude/claudeclaw/jobs/` with cron schedules (timezone-aware, evaluated in configured `timezone`)
-- The statusline shows a live countdown to the next run
+- Each job runs when its cron schedule matches; all periodic work is job-based (no separate heartbeat)
+- The statusline shows job status and next execution times
 
 **Configuration:**
-- `.claude/claudeclaw/settings.json` — Main config (heartbeat, telegram, security)
-- `.claude/claudeclaw/settings.json` — Main config (heartbeat, telegram, security, web)
+- `.claude/claudeclaw/settings.json` — Main config (telegram, security, web). Heartbeat disabled.
+- `.claude/claudeclaw/jobs/*.md` — Cron jobs with schedule frontmatter and a prompt body
 - `.claude/claudeclaw/jobs/*.md` — Cron jobs with schedule frontmatter and a prompt body
 
 **Job file format:**
