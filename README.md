@@ -6,50 +6,106 @@ A fork of [claudeclaw](https://github.com/dathtd119/claudeclaw) that adds multi-
 
 | Feature | claudeclaw | oh-my-claudeclaw |
 |---------|-----------|-----------------|
-| Sessions | Single shared session for everything | Per-group session isolation |
+| Sessions | Single shared session for everything | Per-agent session isolation with daily rotation |
 | Execution | Serial queue (one job at a time) | Parallel execution across groups |
-| Job config | schedule + notify only | model, tools, effort, maxTurns, sessionGroup |
-| Telegram routing | All messages → same session | Classifier routes to secretary/general sessions |
+| Job config | schedule + notify only | agent, model, tools, effort, maxTurns |
+| Agents | N/A | Modular agent-driven config (operator, secretary, etc.) |
+| Channels | Hardcoded Telegram | Config-driven channel dict (Telegram, WhatsApp) |
+| Telegram routing | All messages → same session | Local LLM classifier routes to agent sessions |
+| Classification | N/A | Local Qwen 2B (~135ms) with Haiku fallback |
+| Subagent detection | N/A | Per-agent keywords/LLM/hybrid strategy |
 | Session rotation | Manual reset only | Auto-rotate at token threshold (120k default) |
 | Token tracking | None | Estimates content tokens from JSONL transcripts |
-| Reason | Vanilla, minimal use | Overengineered it because I can and love the project |
 
-## New Concepts
+## Core Architecture
 
-### Session Groups
+### Modular Agent-Driven Configuration
 
-Jobs and Telegram messages are assigned to **session groups**. Each group maintains its own Claude session, enabling:
+`settings.json` is the single source of truth. Agent names are unique keys, channels are a separate dict, and agents reference channels by name.
 
-- **Isolation**: Secretary work doesn't pollute general conversation context
-- **Parallelism**: Different groups execute concurrently
-- **Persistence**: Groups with `sessionGroup` in frontmatter resume their session; stateless jobs get fresh sessions
+```json
+{
+  "channels": {
+    "system": { "type": "telegram", "token": "...", "chatId": 123 },
+    "secretary": { "type": "telegram", "token": "...", "chatId": 123 }
+  },
+  "agents": {
+    "operator": {
+      "model": "sonnet",
+      "channel": "system",
+      "subagentDetection": { "enabled": false }
+    },
+    "secretary": {
+      "model": "sonnet",
+      "channel": "secretary",
+      "subagentDetection": {
+        "enabled": true,
+        "strategy": "keywords",
+        "tasks": {
+          "whatsapp_read": { "keywords": ["whatsapp", "message", "chat"] },
+          "obsidian_sync": { "keywords": ["obsidian", "postsale", "report"] }
+        }
+      }
+    }
+  },
+  "localLlm": {
+    "url": "http://localhost:9292/v1/chat/completions",
+    "model": "qwen-2b",
+    "timeout": 10000
+  }
+}
+```
 
-### Job Frontmatter Extensions
+No hardcoded agent or channel names in code — everything is config-driven.
+
+### Local LLM Offloading
+
+Small tasks (classification, subagent detection) are offloaded to a local Qwen 2B model via [llama-swap](https://github.com/mostlygeek/llama-swap) (OpenAI-compatible endpoint):
+
+- **Message classification**: Local LLM (~135ms, free) → Haiku fallback on failure
+- **Subagent task detection**: Per-agent strategy — `keywords`, `llm`, or `hybrid`
+- **Timeout**: 10s, graceful fallback to Haiku CLI on any error
+
+### Job Frontmatter
 
 ```yaml
 ---
-schedule: "0 8 * * *"
+agent: secretary           # agent name → determines channel + model
+schedule: "30 7 * * *"
 recurring: true
-notify: true
-session_group: secretary    # persistent session group
-model: haiku                # override default model
-tools: "Read,Bash,Skill"    # restrict available tools
-effort: low                 # claude --effort flag
-max_turns: 5                # limit conversation turns
+model: haiku               # optional model override
+tools: "Read,Bash,Skill,Task"
+max_turns: 5               # optional turn limit
 ---
 ```
 
-Jobs without `session_group` run stateless (no `--resume`, fully parallel).
+Jobs reference agents by name. Channel routing is automatic via `agents[name].channel`.
+
+### Message Routing (send.sh)
+
+```bash
+# Agent-based routing (recommended)
+send.sh agent secretary "📊 PostSale update"
+send.sh agent operator "⚙️ System alert"
+
+# Shorthand
+send.sh secretary "message"
+send.sh system "message"
+```
+
+`send.sh` reads `settings.json` dynamically: agent → channel name → credentials → Telegram API.
 
 ### Telegram Message Routing
 
-1. **Reply-to routing**: If user replies to a bot message, route to the same session group that produced it
-2. **Classifier (Layer 1)**: Stateless Haiku call classifies message as `secretary` or `general`
-3. **Fallback**: Default to `general` group
+1. **Reply-to routing**: If user replies to a bot message, route to the same session group
+2. **Classifier**: Local LLM classifies as `secretary` or `general`, falls back to Haiku
+3. **Fallback**: Default to `operator` agent
 
-### Session Rotation
+### Session Groups & Rotation
 
-When a session group's token count exceeds the threshold (default 120k), the session is archived and a new one created. Configure in `settings.json`:
+- Each agent gets its own daily session group (e.g., `secretary_2026-03-03`)
+- When token count exceeds threshold (120k default), session is archived and rotated
+- Jobs without `session_group` in frontmatter use agent name as group
 
 ```json
 {
@@ -60,9 +116,17 @@ When a session group's token count exceeds the threshold (default 120k), the ses
 }
 ```
 
-## API Endpoints (Web UI)
+### Subagent Detection
 
-New endpoints added to the existing web dashboard:
+Per-agent configuration with three strategies:
+
+| Strategy | Mechanism | Cost | Accuracy |
+|----------|-----------|------|----------|
+| `keywords` | Check keywords per task | Free | Medium |
+| `llm` | Local Qwen 2B classify | Free (local) | High |
+| `hybrid` | LLM first, keywords fallback | Free | High |
+
+## API Endpoints (Web UI)
 
 - `GET /api/sessions` — list active session groups with token counts
 - `POST /api/sessions/:group/rotate` — force session rotation
@@ -78,16 +142,18 @@ claude plugin add dathtd119/oh-my-claudeclaw
 
 ```
 src/
-├── session-registry.ts   # Multi-session storage + rotation
-├── token-estimator.ts    # JSONL token estimation (~55ms/6MB)
-├── router.ts             # Telegram message classifier + reply-to tracking
-├── runner.ts             # RunOptions, per-group queues
+├── config.ts             # Channels/agents/localLlm config + parsing
+├── local-llm.ts          # Local LLM client (Qwen 2B, 10s timeout, null fallback)
+├── router.ts             # Message classifier (local LLM → Haiku) + subagent detection
+├── runner.ts             # Agent-aware execution, per-group queues
+├── session-registry.ts   # Multi-session storage + daily rotation
+├── session-queries.ts    # Session lookup utilities
 ├── sessions.ts           # Backward-compatible shim → session-registry
-├── jobs.ts               # Extended frontmatter parsing
-├── config.ts             # sessionRotation config
+├── subagent.ts           # Stateless subagent runner for external data
+├── jobs.ts               # Extended frontmatter parsing (agent field)
 ├── commands/
-│   ├── start.ts          # Passes RunOptions to job execution
-│   └── telegram.ts       # 3-layer routing, reply-to tracking
+│   ├── start.ts          # Daemon startup, localLlm init, hot-reload
+│   └── telegram.ts       # Agent-aware routing, reply-to tracking
 └── ui/
     └── server.ts         # Sessions API endpoints
 ```
