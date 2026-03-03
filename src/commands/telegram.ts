@@ -332,26 +332,23 @@ async function sendReaction(token: string, chatId: number, messageId: number, em
   });
 }
 
-let botUsername: string | null = null;
-let botId: number | null = null;
-
-function groupTriggerReason(message: TelegramMessage): string | null {
-  if (botId && message.reply_to_message?.from?.id === botId) return "reply_to_bot";
+function groupTriggerReason(message: TelegramMessage, identity: { username: string | null; id: number | null }): string | null {
+  if (identity.id && message.reply_to_message?.from?.id === identity.id) return "reply_to_bot";
   const { text, entities } = getMessageTextAndEntities(message);
   if (!text) return null;
   const lowerText = text.toLowerCase();
-  if (botUsername && lowerText.includes(`@${botUsername.toLowerCase()}`)) return "text_contains_mention";
+  if (identity.username && lowerText.includes(`@${identity.username.toLowerCase()}`)) return "text_contains_mention";
 
   for (const entity of entities ?? []) {
     const value = text.slice(entity.offset, entity.offset + entity.length);
-    if (entity.type === "mention" && botUsername && value.toLowerCase() === `@${botUsername.toLowerCase()}`) {
+    if (entity.type === "mention" && identity.username && value.toLowerCase() === `@${identity.username.toLowerCase()}`) {
       return "mention_entity_matches_bot";
     }
-    if (entity.type === "mention" && !botUsername) return "mention_entity_before_botname_loaded";
+    if (entity.type === "mention" && !identity.username) return "mention_entity_before_botname_loaded";
     if (entity.type === "bot_command") {
       if (!value.includes("@")) return "bare_bot_command";
-      if (!botUsername) return "scoped_command_before_botname_loaded";
-      if (botUsername && value.toLowerCase().endsWith(`@${botUsername.toLowerCase()}`)) return "scoped_command_matches_bot";
+      if (!identity.username) return "scoped_command_before_botname_loaded";
+      if (identity.username && value.toLowerCase().endsWith(`@${identity.username.toLowerCase()}`)) return "scoped_command_matches_bot";
     }
   }
 
@@ -430,10 +427,11 @@ async function downloadVoiceFromMessage(token: string, message: TelegramMessage)
   return localPath;
 }
 
-async function handleMyChatMember(update: TelegramMyChatMemberUpdate, token: string): Promise<void> {
+async function handleMyChatMember(update: TelegramMyChatMemberUpdate, token: string, agent: "main" | "secretary", identity: { username: string | null; id: number | null }): Promise<void> {
   const chat = update.chat;
-  if (!botUsername && update.new_chat_member.user.username) botUsername = update.new_chat_member.user.username;
-  if (!botId) botId = update.new_chat_member.user.id;
+  if (!identity.username && update.new_chat_member.user.username) identity.username = update.new_chat_member.user.username;
+  if (!identity.id) identity.id = update.new_chat_member.user.id;
+  botIdentities.set(agent, identity);
   const oldStatus = update.old_chat_member.status;
   const newStatus = update.new_chat_member.status;
   const isGroup = chat.type === "group" || chat.type === "supergroup";
@@ -461,14 +459,14 @@ async function handleMyChatMember(update: TelegramMyChatMemberUpdate, token: str
     }
     await sendMessage(token, chat.id, result.stdout || "I was added to this group.");
   } catch (err) {
-    console.error(`[Telegram] group-added event error: ${err instanceof Error ? err.message : err}`);
+    console.error(`[Telegram:${agent}] group-added event error: ${err instanceof Error ? err.message : err}`);
     await sendMessage(token, chat.id, "I was added to this group. Mention me with a command to start.");
   }
 }
 
 // --- Message handler ---
 
-async function handleMessage(message: TelegramMessage, token: string, allowedUserIds: number[], agent: "main" | "secretary"): Promise<void> {
+async function handleMessage(message: TelegramMessage, token: string, allowedUserIds: number[], agent: "main" | "secretary", identity: { username: string | null; id: number | null }): Promise<void> {
   const userId = message.from?.id;
   const chatId = message.chat.id;
   const { text } = getMessageTextAndEntities(message);
@@ -480,7 +478,7 @@ async function handleMessage(message: TelegramMessage, token: string, allowedUse
 
   if (!isPrivate && !isGroup) return;
 
-  const triggerReason = isGroup ? groupTriggerReason(message) : "private_chat";
+  const triggerReason = isGroup ? groupTriggerReason(message, identity) : "private_chat";
   if (isGroup && !triggerReason) {
     debugLog(
       `Skip group message chat=${chatId} from=${userId ?? "unknown"} reason=no_trigger text="${(text ?? "").slice(0, 80)}"`
@@ -524,7 +522,7 @@ async function handleMessage(message: TelegramMessage, token: string, allowedUse
 
   // Secretary: detect reply to a bot alert message → treat as custom reply
   const replyToMsgId = message.reply_to_message?.message_id;
-  if (replyToMsgId && text && botId && message.reply_to_message?.from?.id === botId) {
+  if (replyToMsgId && text && identity.id && message.reply_to_message?.from?.id === identity.id) {
     try {
       const lookupResp = await fetch(`http://127.0.0.1:9999/pending/by-bot-msg/${replyToMsgId}`);
       if (lookupResp.ok) {
@@ -686,15 +684,18 @@ async function handleCallbackQuery(query: TelegramCallbackQuery, token: string):
 // --- Polling loop ---
 
 let running = true;
+const botIdentities = new Map<"main" | "secretary", { username: string | null; id: number | null }>();
 
 async function poll(token: string, allowedUserIds: number[], agent: "main" | "secretary", debug = false): Promise<void> {
   let offset = 0;
+  const identity = botIdentities.get(agent) ?? { username: null, id: null };
   try {
     const me = await callApi<{ ok: boolean; result: TelegramMe }>(token, "getMe");
     if (me.ok) {
-      botUsername = me.result.username ?? null;
-      botId = me.result.id;
-      console.log(`  Bot: ${botUsername ? `@${botUsername}` : botId}`);
+      identity.username = me.result.username ?? null;
+      identity.id = me.result.id;
+      botIdentities.set(agent, identity);
+      console.log(`  Bot: ${identity.username ? `@${identity.username}` : identity.id}`);
       console.log(`  Group privacy: ${me.result.can_read_all_group_messages ? "disabled (reads all messages)" : "enabled (commands & mentions only)"}`);
     }
   } catch (err) {
@@ -727,12 +728,12 @@ async function poll(token: string, allowedUserIds: number[], agent: "main" | "se
           update.edited_channel_post,
         ].filter((m): m is TelegramMessage => Boolean(m));
         for (const incoming of incomingMessages) {
-          handleMessage(incoming, token, allowedUserIds, agent).catch((err) => {
+          handleMessage(incoming, token, allowedUserIds, agent, identity).catch((err) => {
             console.error(`[Telegram:${agent}] Unhandled: ${err}`);
           });
         }
         if (update.my_chat_member) {
-          handleMyChatMember(update.my_chat_member, token).catch((err) => {
+          handleMyChatMember(update.my_chat_member, token, agent, identity).catch((err) => {
             console.error(`[Telegram:${agent}] my_chat_member unhandled: ${err}`);
           });
         }

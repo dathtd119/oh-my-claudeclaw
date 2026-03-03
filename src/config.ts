@@ -35,6 +35,7 @@ const DEFAULT_SETTINGS: Settings = {
     port: 9998,
     sessionGroup: "whatsapp",
   },
+  sidecarProcesses: [],
 };
 
 export interface HeartbeatExcludeWindow {
@@ -55,6 +56,11 @@ export interface TelegramConfig {
   allowedUserIds: number[];
 }
 
+export interface SecretaryTelegramConfig {
+  token?: string;
+  chatId?: number;
+}
+
 export type SecurityLevel =
   | "locked"
   | "strict"
@@ -72,6 +78,14 @@ export interface SessionRotationConfig {
   enabled: boolean;
 }
 
+export interface SidecarProcess {
+  name: string;
+  command: string;
+  args: string[];
+  cwd?: string;
+  enabled: boolean;
+}
+
 export interface Settings {
   model: string;
   api: string;
@@ -80,10 +94,12 @@ export interface Settings {
   timezoneOffsetMinutes: number;
   heartbeat: HeartbeatConfig;
   telegram: TelegramConfig;
+  secretaryTelegram?: SecretaryTelegramConfig;
   security: SecurityConfig;
   web: WebConfig;
   whatsapp: WhatsAppConfig;
   sessionRotation?: SessionRotationConfig;
+  sidecarProcesses: SidecarProcess[];
 }
 
 export interface ModelConfig {
@@ -154,6 +170,10 @@ function parseSettings(raw: Record<string, any>): Settings {
       token: raw.telegram?.token ?? "",
       allowedUserIds: raw.telegram?.allowedUserIds ?? [],
     },
+    secretaryTelegram: raw.secretaryTelegram ? {
+      token: raw.secretaryTelegram.token ?? "",
+      chatId: raw.secretaryTelegram.chatId ?? 0,
+    } : undefined,
     security: {
       level,
       allowedTools: Array.isArray(raw.security?.allowedTools)
@@ -181,6 +201,7 @@ function parseSettings(raw: Record<string, any>): Settings {
       threshold: Number.isFinite(raw.sessionRotation?.threshold) ? Number(raw.sessionRotation.threshold) : 120000,
       enabled: raw.sessionRotation?.enabled !== false,
     } : undefined,
+    sidecarProcesses: parseSidecarProcesses(raw.sidecarProcesses),
   };
 }
 
@@ -210,6 +231,25 @@ function parseExcludeWindows(value: unknown): HeartbeatExcludeWindow[] {
       start,
       end,
       days: uniqueDays.length > 0 ? uniqueDays : [...ALL_DAYS],
+    });
+  }
+  return out;
+}
+
+function parseSidecarProcesses(value: unknown): SidecarProcess[] {
+  if (!Array.isArray(value)) return [];
+  const out: SidecarProcess[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object") continue;
+    const name = typeof entry.name === "string" ? entry.name.trim() : "";
+    const command = typeof entry.command === "string" ? entry.command.trim() : "";
+    if (!name || !command) continue;
+    out.push({
+      name,
+      command,
+      args: Array.isArray(entry.args) ? entry.args.map(String) : [],
+      cwd: typeof entry.cwd === "string" ? entry.cwd.trim() : undefined,
+      enabled: entry.enabled !== false,
     });
   }
   return out;

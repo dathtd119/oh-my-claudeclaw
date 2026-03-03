@@ -275,6 +275,7 @@ export async function start(args: string[] = []) {
   // --- Telegram ---
   let telegramSend: ((chatId: number, text: string) => Promise<number | null>) | null = null;
   let telegramToken = "";
+  let secretaryTelegramToken = "";
 
   async function initMainTelegram() {
     if (currentSettings.telegram.token && currentSettings.telegram.token !== telegramToken) {
@@ -296,15 +297,19 @@ export async function start(args: string[] = []) {
   }
 
   async function initSecretaryTelegram() {
-    if (currentSettings.secretaryTelegram?.token) {
+    if (currentSettings.secretaryTelegram?.token && currentSettings.secretaryTelegram.token !== secretaryTelegramToken) {
       const { startPolling } = await import("./telegram");
       startPolling(
         currentSettings.secretaryTelegram.token,
-        [currentSettings.secretaryTelegram.chatId],
+        currentSettings.secretaryTelegram.chatId ? [currentSettings.secretaryTelegram.chatId] : [],
         "secretary",
         debugFlag
       );
+      secretaryTelegramToken = currentSettings.secretaryTelegram.token;
       console.log(`[${ts()}] Telegram (secretary): enabled`);
+    } else if (!currentSettings.secretaryTelegram?.token && secretaryTelegramToken) {
+      secretaryTelegramToken = "";
+      console.log(`[${ts()}] Telegram (secretary): disabled`);
     }
   }
 
