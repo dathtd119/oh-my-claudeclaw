@@ -3,8 +3,9 @@ import { getSettings, loadSettings } from "../config";
 import { resetSession } from "../sessions";
 import { transcribeAudioToText } from "../whisper";
 import {
-  routeByReplyTo, recordMessageSession,
+  routeByReplyTo, recordMessageSession, detectSubagentTasks,
 } from "../router";
+import { runSubagent } from "../subagent";
 import { mkdir } from "node:fs/promises";
 import { extname, join } from "node:path";
 
@@ -618,7 +619,32 @@ async function handleMessage(message: TelegramMessage, token: string, allowedUse
 
     const runOptions: RunOptions = { sessionGroup, isReply };
 
-    const result = await runUserMessage(agent, prefixedPrompt, runOptions);
+    // Detect and spawn subagents for external data retrieval
+    const settings = getSettings();
+    const subagentTasks = detectSubagentTasks(text, settings);
+    let enrichedPrompt = prefixedPrompt;
+
+    if (subagentTasks.length > 0) {
+      console.log(`[Telegram:${agent}] Spawning subagents for ${subagentTasks.join(", ")}`);
+      const subagentResults = await Promise.allSettled(
+        subagentTasks.map((task) => runSubagent(task, text.slice(0, 200)))
+      );
+
+      const contextParts: string[] = [];
+      for (let i = 0; i < subagentResults.length; i++) {
+        const result = subagentResults[i];
+        if (result.status === "fulfilled" && result.value) {
+          const taskName = subagentTasks[i];
+          contextParts.push(`[Context from ${taskName}]:\n${result.value}`);
+        }
+      }
+
+      if (contextParts.length > 0) {
+        enrichedPrompt = contextParts.join("\n\n") + "\n\n" + prefixedPrompt;
+      }
+    }
+
+    const result = await runUserMessage(agent, enrichedPrompt, runOptions);
 
     if (result.exitCode !== 0) {
       await sendMessage(token, chatId, `Error (exit ${result.exitCode}): ${result.stderr || "Unknown error"}`);

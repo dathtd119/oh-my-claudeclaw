@@ -1,5 +1,7 @@
 import { join } from "path";
 import { existsSync } from "fs";
+import { type Settings } from "./config";
+import { type SubagentTask } from "./subagent";
 
 const MAP_FILE = join(process.cwd(), ".claude", "claudeclaw", "sessions", "message-map.json");
 const MAX_ENTRIES = 500;
@@ -104,4 +106,46 @@ async function loadClassifyTemplate(): Promise<string> {
 async function buildClassifierPrompt(text: string): Promise<string> {
   const template = await loadClassifyTemplate();
   return template.replace("{{MESSAGE}}", text.slice(0, 500));
+}
+
+/**
+ * Detect which subagent tasks should be spawned based on message content.
+ * Returns array of task names (empty if none detected or detection disabled).
+ */
+export function detectSubagentTasks(message: string, settings: Settings): SubagentTask[] {
+  const detection = settings.subagentDetection;
+  if (!detection?.enabled) return [];
+
+  const lower = message.toLowerCase();
+  const tasks: SubagentTask[] = [];
+
+  const wahaKeywords = detection.wahaKeywords ?? [
+    "whatsapp",
+    "tin nhắn",
+    "nhắn tin",
+    "message",
+    "chat",
+    "waha",
+    "contact",
+    "liên hệ",
+  ];
+  const obsidianKeywords = detection.obsidianKeywords ?? [
+    "obsidian",
+    "postsale",
+    "note",
+    "ghi chú",
+    "sync",
+    "cập nhật",
+    "tổng hợp",
+    "report",
+  ];
+
+  if (wahaKeywords.some((k) => lower.includes(k.toLowerCase()))) {
+    tasks.push("whatsapp_read");
+  }
+  if (obsidianKeywords.some((k) => lower.includes(k.toLowerCase()))) {
+    tasks.push("obsidian_sync");
+  }
+
+  return tasks;
 }

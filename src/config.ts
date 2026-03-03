@@ -36,6 +36,8 @@ const DEFAULT_SETTINGS: Settings = {
     sessionGroup: "whatsapp",
   },
   sidecarProcesses: [],
+  agents: undefined,
+  subagentDetection: undefined,
 };
 
 export interface HeartbeatExcludeWindow {
@@ -100,6 +102,11 @@ export interface Settings {
   whatsapp: WhatsAppConfig;
   sessionRotation?: SessionRotationConfig;
   sidecarProcesses: SidecarProcess[];
+  agents?: {
+    main?: AgentModelConfig;
+    secretary?: AgentModelConfig;
+  };
+  subagentDetection?: SubagentDetectionConfig;
 }
 
 export interface ModelConfig {
@@ -121,6 +128,18 @@ export interface WhatsAppConfig {
   allowedSender: string;
   port: number;
   sessionGroup: string;
+}
+
+export interface AgentModelConfig {
+  model: string;
+  subagentModel?: string;
+  subagentTasks?: string[];
+}
+
+export interface SubagentDetectionConfig {
+  enabled: boolean;
+  wahaKeywords?: string[];
+  obsidianKeywords?: string[];
 }
 
 let cached: Settings | null = null;
@@ -202,6 +221,23 @@ function parseSettings(raw: Record<string, any>): Settings {
       enabled: raw.sessionRotation?.enabled !== false,
     } : undefined,
     sidecarProcesses: parseSidecarProcesses(raw.sidecarProcesses),
+    agents: raw.agents ? {
+      main: raw.agents.main ? {
+        model: typeof raw.agents.main.model === "string" ? raw.agents.main.model.trim() : "",
+        subagentModel: typeof raw.agents.main.subagentModel === "string" ? raw.agents.main.subagentModel.trim() : undefined,
+        subagentTasks: Array.isArray(raw.agents.main.subagentTasks) ? raw.agents.main.subagentTasks : undefined,
+      } : undefined,
+      secretary: raw.agents.secretary ? {
+        model: typeof raw.agents.secretary.model === "string" ? raw.agents.secretary.model.trim() : "",
+        subagentModel: typeof raw.agents.secretary.subagentModel === "string" ? raw.agents.secretary.subagentModel.trim() : undefined,
+        subagentTasks: Array.isArray(raw.agents.secretary.subagentTasks) ? raw.agents.secretary.subagentTasks : undefined,
+      } : undefined,
+    } : undefined,
+    subagentDetection: raw.subagentDetection ? {
+      enabled: raw.subagentDetection.enabled !== false,
+      wahaKeywords: Array.isArray(raw.subagentDetection.wahaKeywords) ? raw.subagentDetection.wahaKeywords : undefined,
+      obsidianKeywords: Array.isArray(raw.subagentDetection.obsidianKeywords) ? raw.subagentDetection.obsidianKeywords : undefined,
+    } : undefined,
   };
 }
 

@@ -36,6 +36,7 @@ export interface RunOptions {
   effort?: string;
   maxTurns?: number;
   noSessionPersistence?: boolean;
+  isReply?: boolean;
 }
 
 const RATE_LIMIT_PATTERN = /you(?:'|')ve hit your limit/i;
@@ -228,12 +229,16 @@ export async function execClaude(name: string, prompt: string, options?: RunOpti
 
   const group = options?.sessionGroup ?? "default";
 
-  let existing: { sessionId: string } | null = null;
+  let existing: { sessionId: string; contentTokens?: number } | null = null;
   if (!options?.noSessionPersistence) {
     if (options?.sessionGroup) await checkAndRotate(group);
     existing = options?.sessionGroup
       ? await getSessionForGroup(group)
       : await getSession();
+    // Skip entries with contentTokens=0 (never actually used - likely from corrupt UUID generation)
+    if (existing && existing.contentTokens === 0) {
+      existing = null;
+    }
   }
 
   const isNew = !existing;
@@ -333,7 +338,8 @@ export async function execClaude(name: string, prompt: string, options?: RunOpti
       sessionId = json.session_id;
       stdout = json.result ?? "";
       if (options?.sessionGroup) {
-        await createSessionForGroup(group, sessionId);
+        const agentFromGroup = group.split("_")[0] || "default";
+        await createSessionForGroup(group, sessionId, agentFromGroup);
       } else if (!options?.noSessionPersistence) {
         await createSession(sessionId);
       }
@@ -397,11 +403,18 @@ export async function runUserMessage(source: string, prompt: string, options?: R
   // Determine agent from source and auto-rotate session if needed
   const agent = sourceToAgent(source);
   const sessionEntry = await getOrCreateSessionForAgent(agent);
+  const sessionGroup = sessionEntry.group;
 
-  // Use agent-specific session group
+  // Apply agent-specific model if configured
+  const settings = getSettings();
+  const agentConfig = (settings.agents as any)?.[agent];
+  const agentModel = agentConfig?.model;
+
+  // Use agent-specific session group and model
   const updatedOptions: RunOptions = {
     ...options,
-    sessionGroup: sessionEntry.group,
+    sessionGroup,
+    model: agentModel ?? options?.model,
   };
 
   return run(source, prefixUserMessageWithClock(prompt), updatedOptions);
