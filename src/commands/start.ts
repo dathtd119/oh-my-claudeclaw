@@ -7,6 +7,7 @@ import { cronMatches, nextCronMatch } from "../cron";
 import { clearJobSchedule, loadJobs } from "../jobs";
 import { writePidFile, cleanupPidFile, checkExistingDaemon } from "../pid";
 import { initConfig, loadSettings, reloadSettings, resolvePrompt, type Settings } from "../config";
+import { setLocalLlmConfig } from "../local-llm";
 import { startWebUi, type WebServerHandle } from "../web";
 import { startWhatsAppServer, type WhatsAppServerHandle } from "../whatsapp";
 import type { Job } from "../jobs";
@@ -235,6 +236,9 @@ export async function start(args: string[] = []) {
 
   await initConfig();
   const settings = await loadSettings();
+  if ((settings as any).localLlm) {
+    setLocalLlmConfig((settings as any).localLlm);
+  }
   await ensureProjectClaudeMd();
   const jobs = await loadJobs();
   const webEnabled = webFlag || webPortFlag !== null || settings.web.enabled;
@@ -436,6 +440,9 @@ export async function start(args: string[] = []) {
   setInterval(async () => {
     try {
       const newSettings = await reloadSettings();
+      if ((newSettings as any).localLlm) {
+        setLocalLlmConfig((newSettings as any).localLlm);
+      }
       const newJobs = await loadJobs();
 
       // Detect security config changes

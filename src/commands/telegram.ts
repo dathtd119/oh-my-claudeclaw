@@ -621,7 +621,7 @@ async function handleMessage(message: TelegramMessage, token: string, allowedUse
 
     // Detect and spawn subagents for external data retrieval
     const settings = getSettings();
-    const subagentTasks = detectSubagentTasks(text, settings);
+    const subagentTasks = await detectSubagentTasks(text, settings, agent);
     let enrichedPrompt = prefixedPrompt;
 
     if (subagentTasks.length > 0) {
