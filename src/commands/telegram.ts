@@ -3,7 +3,7 @@ import { getSettings, loadSettings } from "../config";
 import { resetSession } from "../sessions";
 import { transcribeAudioToText } from "../whisper";
 import {
-  routeByReplyTo, classifyMessage, recordMessageSession,
+  routeByReplyTo, recordMessageSession,
 } from "../router";
 import { mkdir } from "node:fs/promises";
 import { extname, join } from "node:path";
@@ -313,11 +313,22 @@ function extractReactionDirective(text: string): { cleanedText: string; reaction
   return { cleanedText, reactionEmoji };
 }
 
+// Telegram's allowed reaction emoji set (as of 2024)
+const TELEGRAM_ALLOWED_REACTIONS = new Set([
+  "👍","👎","❤️","🔥","🥰","👏","😁","🤔","🤯","😱","🤬","😢","🎉","🤩","🤮",
+  "💩","🙏","👌","🕊","🤡","🥱","🥴","😍","🐳","❤️‍🔥","🌚","🌭","💯","🤣","⚡",
+  "🍌","🏆","💔","🤨","😐","🍓","🍾","💋","🖕","😈","😴","😭","🤓","👻","👨‍💻",
+  "👀","🎃","🙈","😇","😂","🎅","☃","🌟","💫","🎄","🎆","🎇","🌈","🌊","🐶",
+  "🐱","🐭","🐹","🐰","🦊","🐻","🐼","🐨","🐯","🦁","🐮","🐷","🐸","🐵","🙊",
+  "🙉","🙈","🐔","🐧","🐦","🐤","🦆","🦅","🦉","🦇","🐺","🐗","🐴","🦄","🐝",
+]);
+
 async function sendReaction(token: string, chatId: number, messageId: number, emoji: string): Promise<void> {
+  const safeEmoji = TELEGRAM_ALLOWED_REACTIONS.has(emoji) ? emoji : "👍";
   await callApi(token, "setMessageReaction", {
     chat_id: chatId,
     message_id: messageId,
-    reaction: [{ type: "emoji", emoji }],
+    reaction: [{ type: "emoji", emoji: safeEmoji }],
   });
 }
 
@@ -419,8 +430,7 @@ async function downloadVoiceFromMessage(token: string, message: TelegramMessage)
   return localPath;
 }
 
-async function handleMyChatMember(update: TelegramMyChatMemberUpdate): Promise<void> {
-  const config = getSettings().telegram;
+async function handleMyChatMember(update: TelegramMyChatMemberUpdate, token: string): Promise<void> {
   const chat = update.chat;
   if (!botUsername && update.new_chat_member.user.username) botUsername = update.new_chat_member.user.username;
   if (!botId) botId = update.new_chat_member.user.id;
@@ -446,20 +456,19 @@ async function handleMyChatMember(update: TelegramMyChatMemberUpdate): Promise<v
   try {
     const result = await run("telegram", eventPrompt);
     if (result.exitCode !== 0) {
-      await sendMessage(config.token, chat.id, "I was added to this group. Mention me with a command to start.");
+      await sendMessage(token, chat.id, "I was added to this group. Mention me with a command to start.");
       return;
     }
-    await sendMessage(config.token, chat.id, result.stdout || "I was added to this group.");
+    await sendMessage(token, chat.id, result.stdout || "I was added to this group.");
   } catch (err) {
     console.error(`[Telegram] group-added event error: ${err instanceof Error ? err.message : err}`);
-    await sendMessage(config.token, chat.id, "I was added to this group. Mention me with a command to start.");
+    await sendMessage(token, chat.id, "I was added to this group. Mention me with a command to start.");
   }
 }
 
 // --- Message handler ---
 
-async function handleMessage(message: TelegramMessage): Promise<void> {
-  const config = getSettings().telegram;
+async function handleMessage(message: TelegramMessage, token: string, allowedUserIds: number[], agent: "main" | "secretary"): Promise<void> {
   const userId = message.from?.id;
   const chatId = message.chat.id;
   const { text } = getMessageTextAndEntities(message);
@@ -482,11 +491,11 @@ async function handleMessage(message: TelegramMessage): Promise<void> {
     `Handle message chat=${chatId} type=${chatType} from=${userId ?? "unknown"} reason=${triggerReason} text="${(text ?? "").slice(0, 80)}"`
   );
 
-  if (userId && config.allowedUserIds.length > 0 && !config.allowedUserIds.includes(userId)) {
+  if (userId && allowedUserIds.length > 0 && !allowedUserIds.includes(userId)) {
     if (isPrivate) {
-      await sendMessage(config.token, chatId, "Unauthorized.");
+      await sendMessage(token, chatId, "Unauthorized.");
     } else {
-      console.log(`[Telegram] Ignored group message from unauthorized user ${userId} in chat ${chatId}`);
+      console.log(`[Telegram:${agent}] Ignored group message from unauthorized user ${userId} in chat ${chatId}`);
       debugLog(`Skip group message chat=${chatId} from=${userId} reason=unauthorized_user`);
     }
     return;
@@ -500,7 +509,7 @@ async function handleMessage(message: TelegramMessage): Promise<void> {
   const command = text ? extractTelegramCommand(text) : null;
   if (command === "/start") {
     await sendMessage(
-      config.token,
+      token,
       chatId,
       "Hello! Send me a message and I'll respond using Claude.\nUse /reset to start a fresh session."
     );
@@ -509,7 +518,7 @@ async function handleMessage(message: TelegramMessage): Promise<void> {
 
   if (command === "/reset") {
     await resetSession();
-    await sendMessage(config.token, chatId, "Global session reset. Next message starts fresh.");
+    await sendMessage(token, chatId, "Global session reset. Next message starts fresh.");
     return;
   }
 
@@ -526,7 +535,7 @@ async function handleMessage(message: TelegramMessage): Promise<void> {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ text }),
           });
-          await sendMessage(config.token, chatId, `✅ Sent custom reply + pattern learned.`);
+          await sendMessage(token, chatId, `✅ Sent custom reply + pattern learned.`);
           return;
         }
       }
@@ -543,25 +552,25 @@ async function handleMessage(message: TelegramMessage): Promise<void> {
   );
 
   // Keep typing indicator alive while queued/running
-  const typingInterval = setInterval(() => sendTyping(config.token, chatId), 4000);
+  const typingInterval = setInterval(() => sendTyping(token, chatId), 4000);
 
   try {
-    await sendTyping(config.token, chatId);
+    await sendTyping(token, chatId);
     let imagePath: string | null = null;
     let voicePath: string | null = null;
     let voiceTranscript: string | null = null;
     if (hasImage) {
       try {
-        imagePath = await downloadImageFromMessage(config.token, message);
+        imagePath = await downloadImageFromMessage(token, message);
       } catch (err) {
-        console.error(`[Telegram] Failed to download image for ${label}: ${err instanceof Error ? err.message : err}`);
+        console.error(`[Telegram:${agent}] Failed to download image for ${label}: ${err instanceof Error ? err.message : err}`);
       }
     }
     if (hasVoice) {
       try {
-        voicePath = await downloadVoiceFromMessage(config.token, message);
+        voicePath = await downloadVoiceFromMessage(token, message);
       } catch (err) {
-        console.error(`[Telegram] Failed to download voice for ${label}: ${err instanceof Error ? err.message : err}`);
+        console.error(`[Telegram:${agent}] Failed to download voice for ${label}: ${err instanceof Error ? err.message : err}`);
       }
 
       if (voicePath) {
@@ -572,7 +581,7 @@ async function handleMessage(message: TelegramMessage): Promise<void> {
             log: (message) => debugLog(message),
           });
         } catch (err) {
-          console.error(`[Telegram] Failed to transcribe voice for ${label}: ${err instanceof Error ? err.message : err}`);
+          console.error(`[Telegram:${agent}] Failed to transcribe voice for ${label}: ${err instanceof Error ? err.message : err}`);
         }
       }
     }
@@ -595,50 +604,42 @@ async function handleMessage(message: TelegramMessage): Promise<void> {
     }
     const prefixedPrompt = promptParts.join("\n");
 
-    // Multi-session routing: reply-to check → classifier → default
-    let sessionGroup: string | undefined;
-    if (replyToMsgId) {
+    // Session routing: use agent as session source
+    // Reply-to routing preserved to maintain thread continuity
+    const isReply = !!replyToMsgId;
+    let sessionGroup: string = agent;
+    if (isReply) {
       const routed = await routeByReplyTo(replyToMsgId);
       if (routed) {
         sessionGroup = routed;
         debugLog(`Routed by reply-to ${replyToMsgId} → group=${routed}`);
-      }
-    }
-    if (!sessionGroup && text.trim()) {
-      try {
-        const classification = await classifyMessage(text);
-        debugLog(`Classified message → ${classification.category} (${classification.reason})`);
-        if (classification.category === "secretary") sessionGroup = "secretary";
-      } catch (err) {
-        debugLog(`Classification failed: ${err instanceof Error ? err.message : err}`);
+      } else {
+        debugLog(`Reply detected but no mapping found for msg_id=${replyToMsgId}, using agent=${agent}`);
       }
     }
 
-    const runOptions: RunOptions = {};
-    if (sessionGroup) {
-      runOptions.sessionGroup = sessionGroup;
-    }
+    const runOptions: RunOptions = { sessionGroup, isReply };
 
-    const result = await runUserMessage("telegram", prefixedPrompt, runOptions);
+    const result = await runUserMessage(agent, prefixedPrompt, runOptions);
 
     if (result.exitCode !== 0) {
-      await sendMessage(config.token, chatId, `Error (exit ${result.exitCode}): ${result.stderr || "Unknown error"}`);
+      await sendMessage(token, chatId, `Error (exit ${result.exitCode}): ${result.stderr || "Unknown error"}`);
     } else {
       const { cleanedText, reactionEmoji } = extractReactionDirective(result.stdout || "");
       if (reactionEmoji) {
-        await sendReaction(config.token, chatId, message.message_id, reactionEmoji).catch((err) => {
-          console.error(`[Telegram] Failed to send reaction for ${label}: ${err instanceof Error ? err.message : err}`);
+        await sendReaction(token, chatId, message.message_id, reactionEmoji).catch((err) => {
+          console.error(`[Telegram:${agent}] Failed to send reaction for ${label}: ${err instanceof Error ? err.message : err}`);
         });
       }
-      const botMsgId = await sendMessage(config.token, chatId, cleanedText || "(empty response)");
+      const botMsgId = await sendMessage(token, chatId, cleanedText || "(empty response)");
       if (botMsgId && sessionGroup) {
         await recordMessageSession(botMsgId, sessionGroup).catch(() => {});
       }
     }
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
-    console.error(`[Telegram] Error for ${label}: ${errMsg}`);
-    await sendMessage(config.token, chatId, `Error: ${errMsg}`);
+    console.error(`[Telegram:${agent}] Error for ${label}: ${errMsg}`);
+    await sendMessage(token, chatId, `Error: ${errMsg}`);
   } finally {
     clearInterval(typingInterval);
   }
@@ -646,8 +647,7 @@ async function handleMessage(message: TelegramMessage): Promise<void> {
 
 // --- Callback query handler ---
 
-async function handleCallbackQuery(query: TelegramCallbackQuery): Promise<void> {
-  const config = getSettings().telegram;
+async function handleCallbackQuery(query: TelegramCallbackQuery, token: string): Promise<void> {
   const data = query.data ?? "";
 
   // Secretary pattern: "sec_yes_<8hex>" or "sec_no_<8hex>"
@@ -663,7 +663,7 @@ async function handleCallbackQuery(query: TelegramCallbackQuery): Promise<void> 
       if (query.message) {
         const statusLine = action === "yes" ? "\n\n✅ Sent" : "\n\n❌ Dismissed";
         const newText = (query.message.text ?? "").replace(/\n\nReply:.*$/s, statusLine);
-        await callApi(config.token, "editMessageText", {
+        await callApi(token, "editMessageText", {
           chat_id: query.message.chat.id,
           message_id: query.message.message_id,
           text: newText,
@@ -672,7 +672,7 @@ async function handleCallbackQuery(query: TelegramCallbackQuery): Promise<void> 
     } catch {
       // server not running or error
     }
-    await callApi(config.token, "answerCallbackQuery", {
+    await callApi(token, "answerCallbackQuery", {
       callback_query_id: query.id,
       text: answerText,
     }).catch(() => {});
@@ -680,18 +680,17 @@ async function handleCallbackQuery(query: TelegramCallbackQuery): Promise<void> 
   }
 
   // Default: ack with no text
-  await callApi(config.token, "answerCallbackQuery", { callback_query_id: query.id }).catch(() => {});
+  await callApi(token, "answerCallbackQuery", { callback_query_id: query.id }).catch(() => {});
 }
 
 // --- Polling loop ---
 
 let running = true;
 
-async function poll(): Promise<void> {
-  const config = getSettings().telegram;
+async function poll(token: string, allowedUserIds: number[], agent: "main" | "secretary", debug = false): Promise<void> {
   let offset = 0;
   try {
-    const me = await callApi<{ ok: boolean; result: TelegramMe }>(config.token, "getMe");
+    const me = await callApi<{ ok: boolean; result: TelegramMe }>(token, "getMe");
     if (me.ok) {
       botUsername = me.result.username ?? null;
       botId = me.result.id;
@@ -699,17 +698,17 @@ async function poll(): Promise<void> {
       console.log(`  Group privacy: ${me.result.can_read_all_group_messages ? "disabled (reads all messages)" : "enabled (commands & mentions only)"}`);
     }
   } catch (err) {
-    console.error(`[Telegram] getMe failed: ${err instanceof Error ? err.message : err}`);
+    console.error(`[Telegram:${agent}] getMe failed: ${err instanceof Error ? err.message : err}`);
   }
 
-  console.log("Telegram bot started (long polling)");
-  console.log(`  Allowed users: ${config.allowedUserIds.length === 0 ? "all" : config.allowedUserIds.join(", ")}`);
-  if (telegramDebug) console.log("  Debug: enabled");
+  console.log(`Telegram bot (${agent}) started (long polling)`);
+  console.log(`  Allowed users: ${allowedUserIds.length === 0 ? "all" : allowedUserIds.join(", ")}`);
+  if (debug) console.log("  Debug: enabled");
 
   while (running) {
     try {
       const data = await callApi<{ ok: boolean; result: TelegramUpdate[] }>(
-        config.token,
+        token,
         "getUpdates",
         { offset, timeout: 30, allowed_updates: ["message", "my_chat_member", "callback_query"] }
       );
@@ -718,7 +717,7 @@ async function poll(): Promise<void> {
 
       for (const update of data.result) {
         debugLog(
-          `Update ${update.update_id} keys=${Object.keys(update).join(",")}`
+          `[${agent}] Update ${update.update_id} keys=${Object.keys(update).join(",")}`
         );
         offset = update.update_id + 1;
         const incomingMessages = [
@@ -728,24 +727,24 @@ async function poll(): Promise<void> {
           update.edited_channel_post,
         ].filter((m): m is TelegramMessage => Boolean(m));
         for (const incoming of incomingMessages) {
-          handleMessage(incoming).catch((err) => {
-            console.error(`[Telegram] Unhandled: ${err}`);
+          handleMessage(incoming, token, allowedUserIds, agent).catch((err) => {
+            console.error(`[Telegram:${agent}] Unhandled: ${err}`);
           });
         }
         if (update.my_chat_member) {
-          handleMyChatMember(update.my_chat_member).catch((err) => {
-            console.error(`[Telegram] my_chat_member unhandled: ${err}`);
+          handleMyChatMember(update.my_chat_member, token).catch((err) => {
+            console.error(`[Telegram:${agent}] my_chat_member unhandled: ${err}`);
           });
         }
         if (update.callback_query) {
-          handleCallbackQuery(update.callback_query).catch((err) => {
-            console.error(`[Telegram] callback_query unhandled: ${err}`);
+          handleCallbackQuery(update.callback_query, token).catch((err) => {
+            console.error(`[Telegram:${agent}] callback_query unhandled: ${err}`);
           });
         }
       }
     } catch (err) {
       if (!running) break;
-      console.error(`[Telegram] Poll error: ${err instanceof Error ? err.message : err}`);
+      console.error(`[Telegram:${agent}] Poll error: ${err instanceof Error ? err.message : err}`);
       await Bun.sleep(5000);
     }
   }
@@ -760,13 +759,18 @@ process.on("SIGTERM", () => { running = false; });
 process.on("SIGINT", () => { running = false; });
 
 /** Start polling in-process (called by start.ts when token is configured) */
-export function startPolling(debug = false): void {
+export function startPolling(
+  token: string,
+  allowedUserIds: number[],
+  agent: "main" | "secretary",
+  debug = false
+): void {
   telegramDebug = debug;
   (async () => {
     await ensureProjectClaudeMd();
-    await poll();
+    await poll(token, allowedUserIds, agent, debug);
   })().catch((err) => {
-    console.error(`[Telegram] Fatal: ${err}`);
+    console.error(`[Telegram:${agent}] Fatal: ${err}`);
   });
 }
 
@@ -774,5 +778,6 @@ export function startPolling(debug = false): void {
 export async function telegram() {
   await loadSettings();
   await ensureProjectClaudeMd();
-  await poll();
+  const config = getSettings().telegram;
+  await poll(config.token, config.allowedUserIds, "main");
 }
