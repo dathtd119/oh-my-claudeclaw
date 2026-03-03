@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "fs/promises";
 import { join } from "path";
 import { existsSync } from "fs";
-import { getSession, createSession } from "./sessions";
+import { getSession, createSession, getOrCreateSessionForAgent } from "./sessions";
 import {
   getSessionForGroup,
   createSessionForGroup,
@@ -384,8 +384,27 @@ function prefixUserMessageWithClock(prompt: string): string {
   }
 }
 
-export async function runUserMessage(name: string, prompt: string, options?: RunOptions): Promise<RunResult> {
-  return run(name, prefixUserMessageWithClock(prompt), options);
+function sourceToAgent(source: string): string {
+  switch (source) {
+    case "telegram": return "main";
+    case "secretary_telegram": return "secretary";
+    case "whatsapp": return "whatsapp";
+    default: return source;  // fallback
+  }
+}
+
+export async function runUserMessage(source: string, prompt: string, options?: RunOptions): Promise<RunResult> {
+  // Determine agent from source and auto-rotate session if needed
+  const agent = sourceToAgent(source);
+  const sessionEntry = await getOrCreateSessionForAgent(agent);
+
+  // Use agent-specific session group
+  const updatedOptions: RunOptions = {
+    ...options,
+    sessionGroup: sessionEntry.group,
+  };
+
+  return run(source, prefixUserMessageWithClock(prompt), updatedOptions);
 }
 
 export async function bootstrap(): Promise<void> {

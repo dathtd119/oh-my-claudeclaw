@@ -9,6 +9,9 @@ import {
   getSessionForGroup,
   createSessionForGroup,
   rotateSession,
+  getSessionForAgent,
+  checkAndRotateIfNeeded,
+  listAllSessions,
   type SessionEntry,
 } from "./session-registry";
 
@@ -72,4 +75,32 @@ export async function backupSession(): Promise<string | null> {
   await rotateSession("default", "backed up");
 
   return backupName;
+}
+
+export async function getOrCreateSessionForAgent(agent: string): Promise<SessionEntry> {
+  // 1. Check if rotation needed
+  await checkAndRotateIfNeeded(agent, new Date());
+
+  // 2. Try to get existing session for today
+  let entry = await getSessionForAgent(agent);
+  if (entry) {
+    return entry; // Reuse
+  }
+
+  // 3. Create new session for today
+  const today = new Date().toISOString().split("T")[0]; // "2026-03-02"
+  const newSessionId = crypto.randomUUID();
+  const group = `${agent}_${today}`;
+
+  return await createSessionForGroup(group, newSessionId, agent);
+}
+
+export async function listSessionsByAgent(agent: string): Promise<SessionEntry[]> {
+  const reg = await listAllSessions();
+  return reg.filter((s) => s.agent === agent && !s.group.includes("__archived_"));
+}
+
+export async function listArchivedByAgent(agent: string): Promise<SessionEntry[]> {
+  const reg = await listAllSessions();
+  return reg.filter((s) => s.agent === agent && s.group.includes("__archived_"));
 }
