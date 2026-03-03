@@ -428,7 +428,7 @@ async function downloadVoiceFromMessage(token: string, message: TelegramMessage)
   return localPath;
 }
 
-async function handleMyChatMember(update: TelegramMyChatMemberUpdate, token: string, agent: "main" | "secretary", identity: { username: string | null; id: number | null }): Promise<void> {
+async function handleMyChatMember(update: TelegramMyChatMemberUpdate, token: string, agent: string, identity: { username: string | null; id: number | null }): Promise<void> {
   const chat = update.chat;
   if (!identity.username && update.new_chat_member.user.username) identity.username = update.new_chat_member.user.username;
   if (!identity.id) identity.id = update.new_chat_member.user.id;
@@ -467,7 +467,7 @@ async function handleMyChatMember(update: TelegramMyChatMemberUpdate, token: str
 
 // --- Message handler ---
 
-async function handleMessage(message: TelegramMessage, token: string, allowedUserIds: number[], agent: "main" | "secretary", identity: { username: string | null; id: number | null }): Promise<void> {
+async function handleMessage(message: TelegramMessage, token: string, allowedUserIds: number[], agent: string, identity: { username: string | null; id: number | null }): Promise<void> {
   const userId = message.from?.id;
   const chatId = message.chat.id;
   const { text } = getMessageTextAndEntities(message);
@@ -710,9 +710,9 @@ async function handleCallbackQuery(query: TelegramCallbackQuery, token: string):
 // --- Polling loop ---
 
 let running = true;
-const botIdentities = new Map<"main" | "secretary", { username: string | null; id: number | null }>();
+const botIdentities = new Map<string, { username: string | null; id: number | null }>();
 
-async function poll(token: string, allowedUserIds: number[], agent: "main" | "secretary", debug = false): Promise<void> {
+async function poll(token: string, allowedUserIds: number[], agent: string, debug = false): Promise<void> {
   let offset = 0;
   const identity = botIdentities.get(agent) ?? { username: null, id: null };
   try {
@@ -789,7 +789,7 @@ process.on("SIGINT", () => { running = false; });
 export function startPolling(
   token: string,
   allowedUserIds: number[],
-  agent: "main" | "secretary",
+  agent: string,
   debug = false
 ): void {
   telegramDebug = debug;
@@ -806,5 +806,5 @@ export async function telegram() {
   await loadSettings();
   await ensureProjectClaudeMd();
   const config = getSettings().telegram;
-  await poll(config.token, config.allowedUserIds, "main");
+  await poll(config.token, config.allowedUserIds, "operator");
 }

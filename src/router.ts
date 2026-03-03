@@ -59,7 +59,6 @@ export async function classifyMessage(text: string): Promise<ClassifyResult> {
         "claude", "-p", prompt,
         "--model", "haiku",
         "--output-format", "json",
-        "--no-input",
         "--max-turns", "1",
         "--dangerously-skip-permissions",
       ],

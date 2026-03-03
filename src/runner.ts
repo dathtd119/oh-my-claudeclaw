@@ -270,7 +270,7 @@ export async function execClaude(name: string, prompt: string, options?: RunOpti
 
   // Apply per-job CLI overrides
   if (options?.noSessionPersistence) {
-    args.push("--no-input");
+    // --no-input removed: -p already implies non-interactive
   }
   if (options?.tools) {
     const toolsIdx = args.indexOf("--tools");
@@ -390,25 +390,24 @@ function prefixUserMessageWithClock(prompt: string): string {
   }
 }
 
-function sourceToAgent(source: string): string {
-  switch (source) {
-    case "telegram": return "main";
-    case "secretary_telegram": return "secretary";
-    case "whatsapp": return "whatsapp";
-    default: return source;  // fallback
-  }
-}
-
 export async function runUserMessage(source: string, prompt: string, options?: RunOptions): Promise<RunResult> {
-  // Determine agent from source and auto-rotate session if needed
-  const agent = sourceToAgent(source);
+  // source is now the agent name directly (operator, secretary, etc.)
+  const agent = source;
   const sessionEntry = await getOrCreateSessionForAgent(agent);
   const sessionGroup = sessionEntry.group;
 
   // Apply agent-specific model if configured
   const settings = getSettings();
-  const agentConfig = (settings.agents as any)?.[agent];
-  const agentModel = agentConfig?.model;
+  const agents = settings.agents;
+
+  // Handle both new and legacy agent formats
+  let agentModel: string | undefined;
+  if (agents && typeof agents === "object") {
+    const agentEntry = (agents as any)[agent];
+    if (agentEntry && typeof agentEntry === "object") {
+      agentModel = agentEntry.model || (agentEntry as any).subagentModel;
+    }
+  }
 
   // Use agent-specific session group and model
   const updatedOptions: RunOptions = {
