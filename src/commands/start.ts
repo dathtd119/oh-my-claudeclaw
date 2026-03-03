@@ -277,24 +277,21 @@ export async function start(args: string[] = []) {
   const daemonStartedAt = Date.now();
 
   // --- Telegram ---
-  let telegramSend: ((chatId: number, text: string) => Promise<number | null>) | null = null;
   let telegramToken = "";
   let secretaryTelegramToken = "";
 
   async function initMainTelegram() {
     if (currentSettings.telegram.token && currentSettings.telegram.token !== telegramToken) {
-      const { startPolling, sendMessage } = await import("./telegram");
+      const { startPolling } = await import("./telegram");
       startPolling(
         currentSettings.telegram.token,
         currentSettings.telegram.allowedUserIds,
         "main",
         debugFlag
       );
-      telegramSend = (chatId, text) => sendMessage(currentSettings.telegram.token, chatId, text);
       telegramToken = currentSettings.telegram.token;
       console.log(`[${ts()}] Telegram (main): enabled`);
     } else if (!currentSettings.telegram.token && telegramToken) {
-      telegramSend = null;
       telegramToken = "";
       console.log(`[${ts()}] Telegram (main): disabled`);
     }
@@ -400,15 +397,35 @@ export async function start(args: string[] = []) {
     }
   }
 
-  function forwardToTelegram(label: string, result: { exitCode: number; stdout: string; stderr: string }) {
-    if (!telegramSend || currentSettings.telegram.allowedUserIds.length === 0) return;
+  async function forwardToTelegram(label: string, result: { exitCode: number; stdout: string; stderr: string }, agent?: string) {
+    if (!currentSettings.channels || !currentSettings.agents) return;
+
+    // Determine target channel from agent
+    let targetChannel = "system";
+    if (agent && currentSettings.agents[agent]?.channel) {
+      targetChannel = currentSettings.agents[agent].channel;
+    }
+
+    const channel = currentSettings.channels[targetChannel] as any;
+    if (!channel) return;
+
     const text = result.exitCode === 0
       ? `${label ? `[${label}]\n` : ""}${result.stdout || "(empty)"}`
       : `${label ? `[${label}] ` : ""}error (exit ${result.exitCode}): ${result.stderr || "Unknown"}`;
-    for (const userId of currentSettings.telegram.allowedUserIds) {
-      telegramSend(userId, text).catch((err) =>
-        console.error(`[Telegram] Failed to forward to ${userId}: ${err}`)
-      );
+
+    // Get token and chatId for this channel
+    const token = channel.token;
+    const chatId = channel.chatId;
+    if (!token || !chatId) {
+      console.warn(`[Telegram] No token/chatId for channel ${targetChannel}`);
+      return;
+    }
+
+    try {
+      const { sendMessage } = await import("./telegram");
+      await sendMessage(token, chatId, text);
+    } catch (err) {
+      console.error(`[Telegram] Failed to forward to ${targetChannel}: ${err}`);
     }
   }
 
@@ -515,11 +532,14 @@ export async function start(args: string[] = []) {
         if (!job.sessionGroup) jobOptions.noSessionPersistence = true;
 
         resolvePrompt(job.prompt)
-          .then((prompt) => run(job.name, prompt, jobOptions))
+          .then((prompt) => {
+            const agent = job.agent || "operator";
+            return runUserMessage(agent, prompt, jobOptions);
+          })
           .then((r) => {
             if (job.notify === false) return;
             if (job.notify === "error" && r.exitCode === 0) return;
-            forwardToTelegram(job.name, r);
+            return forwardToTelegram(job.name, r, job.agent);
           })
           .finally(async () => {
             if (job.recurring) return;

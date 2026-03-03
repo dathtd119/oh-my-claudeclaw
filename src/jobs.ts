@@ -10,6 +10,7 @@ export interface Job {
   recurring: boolean;
   notify: true | false | "error";
   // oh-my-claudeclaw extensions
+  agent?: string;
   sessionGroup?: string;
   model?: string;
   tools?: string;
@@ -53,6 +54,9 @@ function parseJobFile(name: string, content: string): Job | null {
     : true;
 
   const job: Job = { name, schedule, prompt, recurring, notify };
+
+  const agent = get("agent");
+  if (agent) job.agent = agent;
 
   const sessionGroup = get("session_group") ?? get("sessionGroup");
   if (sessionGroup) job.sessionGroup = sessionGroup;
