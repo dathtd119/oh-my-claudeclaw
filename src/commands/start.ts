@@ -7,7 +7,7 @@ import { cronMatches, nextCronMatch } from "../cron";
 import { clearJobSchedule, loadJobs } from "../jobs";
 import { writePidFile, cleanupPidFile, checkExistingDaemon } from "../pid";
 import { initConfig, loadSettings, reloadSettings, resolvePrompt, type Settings } from "../config";
-import { getDayAndMinuteAtOffset } from "../timezone";
+import { setLocalLlmConfig } from "../local-llm";
 import { startWebUi, type WebServerHandle } from "../web";
 import { startWhatsAppServer, type WhatsAppServerHandle } from "../whatsapp";
 import type { Job } from "../jobs";
@@ -236,6 +236,9 @@ export async function start(args: string[] = []) {
 
   await initConfig();
   const settings = await loadSettings();
+  if ((settings as any).localLlm) {
+    setLocalLlmConfig((settings as any).localLlm);
+  }
   await ensureProjectClaudeMd();
   const jobs = await loadJobs();
   const webEnabled = webFlag || webPortFlag !== null || settings.web.enabled;
@@ -276,23 +279,48 @@ export async function start(args: string[] = []) {
   // --- Telegram ---
   let telegramSend: ((chatId: number, text: string) => Promise<number | null>) | null = null;
   let telegramToken = "";
+  let secretaryTelegramToken = "";
 
-  async function initTelegram(token: string) {
-    if (token && token !== telegramToken) {
+  async function initMainTelegram() {
+    if (currentSettings.telegram.token && currentSettings.telegram.token !== telegramToken) {
       const { startPolling, sendMessage } = await import("./telegram");
-      startPolling(debugFlag);
-      telegramSend = (chatId, text) => sendMessage(token, chatId, text);
-      telegramToken = token;
-      console.log(`[${ts()}] Telegram: enabled`);
-    } else if (!token && telegramToken) {
+      startPolling(
+        currentSettings.telegram.token,
+        currentSettings.telegram.allowedUserIds,
+        "main",
+        debugFlag
+      );
+      telegramSend = (chatId, text) => sendMessage(currentSettings.telegram.token, chatId, text);
+      telegramToken = currentSettings.telegram.token;
+      console.log(`[${ts()}] Telegram (main): enabled`);
+    } else if (!currentSettings.telegram.token && telegramToken) {
       telegramSend = null;
       telegramToken = "";
-      console.log(`[${ts()}] Telegram: disabled`);
+      console.log(`[${ts()}] Telegram (main): disabled`);
     }
   }
 
-  await initTelegram(currentSettings.telegram.token);
-  if (!telegramToken) console.log("  Telegram: not configured");
+  async function initSecretaryTelegram() {
+    if (currentSettings.secretaryTelegram?.token && currentSettings.secretaryTelegram.token !== secretaryTelegramToken) {
+      const { startPolling } = await import("./telegram");
+      startPolling(
+        currentSettings.secretaryTelegram.token,
+        currentSettings.secretaryTelegram.chatId ? [currentSettings.secretaryTelegram.chatId] : [],
+        "secretary",
+        debugFlag
+      );
+      secretaryTelegramToken = currentSettings.secretaryTelegram.token;
+      console.log(`[${ts()}] Telegram (secretary): enabled`);
+    } else if (!currentSettings.secretaryTelegram?.token && secretaryTelegramToken) {
+      secretaryTelegramToken = "";
+      console.log(`[${ts()}] Telegram (secretary): disabled`);
+    }
+  }
+
+  await initMainTelegram();
+  await initSecretaryTelegram();
+  if (!telegramToken) console.log("  Telegram (main): not configured");
+  if (!currentSettings.secretaryTelegram?.token) console.log("  Telegram (secretary): not configured");
 
   function isAddrInUse(err: unknown): boolean {
     if (!err || typeof err !== "object") return false;
@@ -310,12 +338,21 @@ export async function start(args: string[] = []) {
         return startWebUi({
           host,
           port: candidatePort,
-          getSnapshot: () => ({
-            pid: process.pid,
-            startedAt: daemonStartedAt,
-            settings: currentSettings,
-            jobs: currentJobs,
-          }),
+          getSnapshot: () => {
+            let heartbeatNextAt = 0;
+            if (currentSettings.heartbeat.enabled) {
+              const now = new Date();
+              const nextRun = new Date(now.getTime() + currentSettings.heartbeat.interval * 60 * 1000);
+              heartbeatNextAt = nextRun.getTime();
+            }
+            return {
+              pid: process.pid,
+              startedAt: daemonStartedAt,
+              heartbeatNextAt,
+              settings: currentSettings,
+              jobs: currentJobs,
+            };
+          },
           onJobsChanged: async () => {
             currentJobs = await loadJobs();
                     updateState();
@@ -403,6 +440,9 @@ export async function start(args: string[] = []) {
   setInterval(async () => {
     try {
       const newSettings = await reloadSettings();
+      if ((newSettings as any).localLlm) {
+        setLocalLlmConfig((newSettings as any).localLlm);
+      }
       const newJobs = await loadJobs();
 
       // Detect security config changes
@@ -415,11 +455,7 @@ export async function start(args: string[] = []) {
         console.log(`[${ts()}] Security level changed → ${newSettings.security.level}`);
       }
 
-      if (hbChanged) {
-        currentSettings = newSettings;
-          } else {
-        currentSettings = newSettings;
-      }
+      currentSettings = newSettings;
       if (web) {
         currentSettings.web.enabled = true;
         currentSettings.web.port = web.port;
@@ -435,7 +471,9 @@ export async function start(args: string[] = []) {
       currentJobs = newJobs;
 
       // Telegram changes
-      await initTelegram(newSettings.telegram.token);
+      currentSettings = newSettings;
+      await initMainTelegram();
+      await initSecretaryTelegram();
     } catch (err) {
       console.error(`[${ts()}] Hot-reload error:`, err);
     }

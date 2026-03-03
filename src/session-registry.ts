@@ -8,6 +8,8 @@ const REGISTRY_FILE = join(SESSIONS_DIR, "registry.json");
 export interface SessionEntry {
   sessionId: string;
   group: string;
+  agent: string;              // "main", "secretary", "whatsapp", etc
+  dateCreated: string;        // ISO date only: "2026-03-02"
   createdAt: string;
   lastUsedAt: string;
   contentTokens: number;
@@ -54,14 +56,18 @@ export async function getSessionForGroup(group: string): Promise<SessionEntry | 
   return entry ?? null;
 }
 
-export async function createSessionForGroup(group: string, sessionId: string): Promise<SessionEntry> {
+export async function createSessionForGroup(group: string, sessionId: string, agent: string = "default"): Promise<SessionEntry> {
   const reg = await load();
   const existing = reg.sessions.findIndex((s) => s.group === group);
+  const now = new Date();
+  const dateCreated = now.toISOString().split("T")[0];
   const entry: SessionEntry = {
     sessionId,
     group,
-    createdAt: new Date().toISOString(),
-    lastUsedAt: new Date().toISOString(),
+    agent,
+    dateCreated,
+    createdAt: now.toISOString(),
+    lastUsedAt: now.toISOString(),
     contentTokens: 0,
   };
   if (existing >= 0) {
@@ -90,11 +96,44 @@ export async function rotateSession(group: string, summary?: string): Promise<st
   const old = reg.sessions[idx];
   if (summary) old.summary = summary;
 
-  // Move to archive naming
+  // Move to archive naming, preserving agent field
   const archiveGroup = `${group}__archived_${Date.now()}`;
   old.group = archiveGroup;
   await save(reg);
   return old.sessionId;
+}
+
+export async function getSessionForAgent(agent: string): Promise<SessionEntry | null> {
+  const reg = await load();
+  // Find latest non-archived session for this agent
+  const entries = reg.sessions.filter(
+    (s) => s.agent === agent && !s.group.includes("__archived_")
+  );
+  if (!entries.length) return null;
+
+  // Return most recent by createdAt
+  return entries.sort((a, b) =>
+    new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  )[0] ?? null;
+}
+
+export async function checkAndRotateIfNeeded(
+  agent: string,
+  now: Date
+): Promise<string | null> {
+  const entry = await getSessionForAgent(agent);
+  if (!entry) return null; // No active session, caller will create
+
+  const lastUsedDate = entry.lastUsedAt.split("T")[0]; // "2026-03-02"
+  const todayDate = now.toISOString().split("T")[0]; // "2026-03-03"
+
+  if (lastUsedDate !== todayDate) {
+    // Day changed → rotate old session to archive
+    await rotateSession(entry.group, "auto-rotated by day change");
+    return null; // Signal to create new session
+  }
+
+  return entry.sessionId; // Reuse current session
 }
 
 export async function listSessions(): Promise<SessionEntry[]> {

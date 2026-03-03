@@ -35,6 +35,9 @@ const DEFAULT_SETTINGS: Settings = {
     port: 9998,
     sessionGroup: "whatsapp",
   },
+  sidecarProcesses: [],
+  agents: undefined,
+  subagentDetection: undefined,
 };
 
 export interface HeartbeatExcludeWindow {
@@ -55,6 +58,44 @@ export interface TelegramConfig {
   allowedUserIds: number[];
 }
 
+export interface SecretaryTelegramConfig {
+  token?: string;
+  chatId?: number;
+}
+
+export interface ChannelConfig {
+  type: "telegram" | "whatsapp";
+  token?: string;
+  chatId?: number;
+  allowedUserIds?: number[];
+  enabled?: boolean;
+  accessToken?: string;
+  phoneNumberId?: string;
+  verifyToken?: string;
+  allowedSender?: string;
+  port?: number;
+  sessionGroup?: string;
+}
+
+export interface SubagentTaskConfig {
+  keywords?: string[];
+  description?: string;
+}
+
+export interface AgentSubagentDetection {
+  enabled: boolean;
+  strategy?: "keywords" | "llm" | "hybrid";
+  llmUrl?: string;
+  llmModel?: string;
+  tasks: Record<string, SubagentTaskConfig>;
+}
+
+export interface AgentConfig {
+  model: string;
+  channel: string;
+  subagentDetection?: AgentSubagentDetection;
+}
+
 export type SecurityLevel =
   | "locked"
   | "strict"
@@ -72,6 +113,14 @@ export interface SessionRotationConfig {
   enabled: boolean;
 }
 
+export interface SidecarProcess {
+  name: string;
+  command: string;
+  args: string[];
+  cwd?: string;
+  enabled: boolean;
+}
+
 export interface Settings {
   model: string;
   api: string;
@@ -80,10 +129,19 @@ export interface Settings {
   timezoneOffsetMinutes: number;
   heartbeat: HeartbeatConfig;
   telegram: TelegramConfig;
+  secretaryTelegram?: SecretaryTelegramConfig;
   security: SecurityConfig;
   web: WebConfig;
   whatsapp: WhatsAppConfig;
   sessionRotation?: SessionRotationConfig;
+  sidecarProcesses: SidecarProcess[];
+  // New modular system
+  channels?: Record<string, ChannelConfig>;
+  agents?: Record<string, AgentConfig> | {
+    main?: AgentModelConfig;
+    secretary?: AgentModelConfig;
+  };
+  subagentDetection?: SubagentDetectionConfig;
 }
 
 export interface ModelConfig {
@@ -105,6 +163,18 @@ export interface WhatsAppConfig {
   allowedSender: string;
   port: number;
   sessionGroup: string;
+}
+
+export interface AgentModelConfig {
+  model: string;
+  subagentModel?: string;
+  subagentTasks?: string[];
+}
+
+export interface SubagentDetectionConfig {
+  enabled: boolean;
+  wahaKeywords?: string[];
+  obsidianKeywords?: string[];
 }
 
 let cached: Settings | null = null;
@@ -154,6 +224,10 @@ function parseSettings(raw: Record<string, any>): Settings {
       token: raw.telegram?.token ?? "",
       allowedUserIds: raw.telegram?.allowedUserIds ?? [],
     },
+    secretaryTelegram: raw.secretaryTelegram ? {
+      token: raw.secretaryTelegram.token ?? "",
+      chatId: raw.secretaryTelegram.chatId ?? 0,
+    } : undefined,
     security: {
       level,
       allowedTools: Array.isArray(raw.security?.allowedTools)
@@ -180,6 +254,14 @@ function parseSettings(raw: Record<string, any>): Settings {
     sessionRotation: raw.sessionRotation ? {
       threshold: Number.isFinite(raw.sessionRotation?.threshold) ? Number(raw.sessionRotation.threshold) : 120000,
       enabled: raw.sessionRotation?.enabled !== false,
+    } : undefined,
+    sidecarProcesses: parseSidecarProcesses(raw.sidecarProcesses),
+    channels: parseChannels(raw.channels),
+    agents: parseAgents(raw.agents),
+    subagentDetection: raw.subagentDetection ? {
+      enabled: raw.subagentDetection.enabled !== false,
+      wahaKeywords: Array.isArray(raw.subagentDetection.wahaKeywords) ? raw.subagentDetection.wahaKeywords : undefined,
+      obsidianKeywords: Array.isArray(raw.subagentDetection.obsidianKeywords) ? raw.subagentDetection.obsidianKeywords : undefined,
     } : undefined,
   };
 }
@@ -215,6 +297,97 @@ function parseExcludeWindows(value: unknown): HeartbeatExcludeWindow[] {
   return out;
 }
 
+function parseSidecarProcesses(value: unknown): SidecarProcess[] {
+  if (!Array.isArray(value)) return [];
+  const out: SidecarProcess[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object") continue;
+    const name = typeof entry.name === "string" ? entry.name.trim() : "";
+    const command = typeof entry.command === "string" ? entry.command.trim() : "";
+    if (!name || !command) continue;
+    out.push({
+      name,
+      command,
+      args: Array.isArray(entry.args) ? entry.args.map(String) : [],
+      cwd: typeof entry.cwd === "string" ? entry.cwd.trim() : undefined,
+      enabled: entry.enabled !== false,
+    });
+  }
+  return out;
+}
+
+function parseChannels(value: unknown): Record<string, ChannelConfig> | undefined {
+  // New format: channels dict
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const result: Record<string, ChannelConfig> = {};
+    for (const [name, cfg] of Object.entries(value)) {
+      if (!cfg || typeof cfg !== "object") continue;
+      const channelCfg: ChannelConfig = {
+        type: (cfg as any).type ?? "telegram",
+      };
+      if (typeof (cfg as any).token === "string") channelCfg.token = (cfg as any).token;
+      if (typeof (cfg as any).chatId === "number") channelCfg.chatId = (cfg as any).chatId;
+      if (Array.isArray((cfg as any).allowedUserIds)) channelCfg.allowedUserIds = (cfg as any).allowedUserIds;
+      if (typeof (cfg as any).enabled === "boolean") channelCfg.enabled = (cfg as any).enabled;
+      if (typeof (cfg as any).accessToken === "string") channelCfg.accessToken = (cfg as any).accessToken;
+      if (typeof (cfg as any).phoneNumberId === "string") channelCfg.phoneNumberId = (cfg as any).phoneNumberId;
+      if (typeof (cfg as any).verifyToken === "string") channelCfg.verifyToken = (cfg as any).verifyToken;
+      if (typeof (cfg as any).allowedSender === "string") channelCfg.allowedSender = (cfg as any).allowedSender;
+      if (typeof (cfg as any).port === "number") channelCfg.port = (cfg as any).port;
+      if (typeof (cfg as any).sessionGroup === "string") channelCfg.sessionGroup = (cfg as any).sessionGroup;
+      result[name] = channelCfg;
+    }
+    return Object.keys(result).length > 0 ? result : undefined;
+  }
+  return undefined;
+}
+
+function parseAgents(value: unknown): Record<string, AgentConfig> | { main?: AgentModelConfig; secretary?: AgentModelConfig } | undefined {
+  // New format: agents dict with channel references
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const first = Object.values(value)[0];
+    if (first && typeof first === "object" && "channel" in (first as any)) {
+      const result: Record<string, AgentConfig> = {};
+      for (const [name, cfg] of Object.entries(value)) {
+        if (!cfg || typeof cfg !== "object") continue;
+        const agentCfg: AgentConfig = {
+          model: typeof (cfg as any).model === "string" ? (cfg as any).model.trim() : "",
+          channel: typeof (cfg as any).channel === "string" ? (cfg as any).channel.trim() : "system",
+        };
+        if ((cfg as any).subagentDetection && typeof (cfg as any).subagentDetection === "object") {
+          agentCfg.subagentDetection = {
+            enabled: (cfg as any).subagentDetection.enabled !== false,
+            strategy: (cfg as any).subagentDetection.strategy ?? "keywords",
+            llmUrl: typeof (cfg as any).subagentDetection.llmUrl === "string" ? (cfg as any).subagentDetection.llmUrl : undefined,
+            llmModel: typeof (cfg as any).subagentDetection.llmModel === "string" ? (cfg as any).subagentDetection.llmModel : undefined,
+            tasks: (cfg as any).subagentDetection.tasks ?? {},
+          };
+        }
+        result[name] = agentCfg;
+      }
+      return Object.keys(result).length > 0 ? result : undefined;
+    }
+  }
+
+  // Legacy format: agents.main / agents.secretary with separate fields
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return {
+      main: (value as any).main ? {
+        model: typeof (value as any).main.model === "string" ? (value as any).main.model.trim() : "",
+        subagentModel: typeof (value as any).main.subagentModel === "string" ? (value as any).main.subagentModel.trim() : undefined,
+        subagentTasks: Array.isArray((value as any).main.subagentTasks) ? (value as any).main.subagentTasks : undefined,
+      } : undefined,
+      secretary: (value as any).secretary ? {
+        model: typeof (value as any).secretary.model === "string" ? (value as any).secretary.model.trim() : "",
+        subagentModel: typeof (value as any).secretary.subagentModel === "string" ? (value as any).secretary.subagentModel.trim() : undefined,
+        subagentTasks: Array.isArray((value as any).secretary.subagentTasks) ? (value as any).secretary.subagentTasks : undefined,
+      } : undefined,
+    };
+  }
+
+  return undefined;
+}
+
 function parseTimezoneOffsetMinutes(value: unknown, timezoneFallback?: string): number {
   return resolveTimezoneOffsetMinutes(value, timezoneFallback);
 }
@@ -236,6 +409,28 @@ export async function reloadSettings(): Promise<Settings> {
 export function getSettings(): Settings {
   if (!cached) throw new Error("Settings not loaded. Call loadSettings() first.");
   return cached;
+}
+
+/**
+ * Get channel config for a specific agent.
+ * Looks up agent → channel name → channel config.
+ */
+export function getChannelForAgent(agentName: string, settings?: Settings): ChannelConfig | undefined {
+  const s = settings || getSettings();
+  const agents = s.agents;
+
+  if (!agents || typeof agents !== "object") return undefined;
+
+  const agentEntry = (agents as any)[agentName];
+  if (!agentEntry || typeof agentEntry !== "object") return undefined;
+
+  const channelName = agentEntry.channel;
+  if (!channelName) return undefined;
+
+  const channels = s.channels;
+  if (!channels || typeof channels !== "object") return undefined;
+
+  return (channels as any)[channelName];
 }
 
 const PROMPT_EXTENSIONS = [".md", ".txt", ".prompt"];

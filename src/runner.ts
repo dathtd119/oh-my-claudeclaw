@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "fs/promises";
 import { join } from "path";
 import { existsSync } from "fs";
-import { getSession, createSession } from "./sessions";
+import { getSession, createSession, getOrCreateSessionForAgent } from "./sessions";
 import {
   getSessionForGroup,
   createSessionForGroup,
@@ -36,6 +36,7 @@ export interface RunOptions {
   effort?: string;
   maxTurns?: number;
   noSessionPersistence?: boolean;
+  isReply?: boolean;
 }
 
 const RATE_LIMIT_PATTERN = /you(?:'|')ve hit your limit/i;
@@ -228,12 +229,16 @@ export async function execClaude(name: string, prompt: string, options?: RunOpti
 
   const group = options?.sessionGroup ?? "default";
 
-  let existing: { sessionId: string } | null = null;
+  let existing: { sessionId: string; contentTokens?: number } | null = null;
   if (!options?.noSessionPersistence) {
     if (options?.sessionGroup) await checkAndRotate(group);
     existing = options?.sessionGroup
       ? await getSessionForGroup(group)
       : await getSession();
+    // Skip entries with contentTokens=0 (never actually used - likely from corrupt UUID generation)
+    if (existing && existing.contentTokens === 0) {
+      existing = null;
+    }
   }
 
   const isNew = !existing;
@@ -265,7 +270,7 @@ export async function execClaude(name: string, prompt: string, options?: RunOpti
 
   // Apply per-job CLI overrides
   if (options?.noSessionPersistence) {
-    args.push("--no-input");
+    // --no-input removed: -p already implies non-interactive
   }
   if (options?.tools) {
     const toolsIdx = args.indexOf("--tools");
@@ -333,7 +338,8 @@ export async function execClaude(name: string, prompt: string, options?: RunOpti
       sessionId = json.session_id;
       stdout = json.result ?? "";
       if (options?.sessionGroup) {
-        await createSessionForGroup(group, sessionId);
+        const agentFromGroup = group.split("_")[0] || "default";
+        await createSessionForGroup(group, sessionId, agentFromGroup);
       } else if (!options?.noSessionPersistence) {
         await createSession(sessionId);
       }
@@ -384,8 +390,33 @@ function prefixUserMessageWithClock(prompt: string): string {
   }
 }
 
-export async function runUserMessage(name: string, prompt: string, options?: RunOptions): Promise<RunResult> {
-  return run(name, prefixUserMessageWithClock(prompt), options);
+export async function runUserMessage(source: string, prompt: string, options?: RunOptions): Promise<RunResult> {
+  // source is now the agent name directly (operator, secretary, etc.)
+  const agent = source;
+  const sessionEntry = await getOrCreateSessionForAgent(agent);
+  const sessionGroup = sessionEntry.group;
+
+  // Apply agent-specific model if configured
+  const settings = getSettings();
+  const agents = settings.agents;
+
+  // Handle both new and legacy agent formats
+  let agentModel: string | undefined;
+  if (agents && typeof agents === "object") {
+    const agentEntry = (agents as any)[agent];
+    if (agentEntry && typeof agentEntry === "object") {
+      agentModel = agentEntry.model || (agentEntry as any).subagentModel;
+    }
+  }
+
+  // Use agent-specific session group and model
+  const updatedOptions: RunOptions = {
+    ...options,
+    sessionGroup,
+    model: agentModel ?? options?.model,
+  };
+
+  return run(source, prefixUserMessageWithClock(prompt), updatedOptions);
 }
 
 export async function bootstrap(): Promise<void> {
